@@ -4,14 +4,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
         default:
           "bg-[color:var(--color-primary)] text-white hover:bg-[color:var(--color-primary-strong)] focus-visible:outline-[color:var(--color-primary)]",
         secondary:
-          "border border-[color:var(--color-border)] bg-white text-[color:var(--color-primary)] hover:bg-[color:var(--color-surface-soft)] focus-visible:outline-[color:var(--color-muted)]",
+          "border border-[color:var(--color-border)] bg-white text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)] focus-visible:outline-[color:var(--color-muted)]",
         ghost:
           "text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)] hover:text-[color:var(--color-primary)] focus-visible:outline-[color:var(--color-muted)]",
         warning:

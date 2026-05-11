@@ -9,6 +9,7 @@ import {
   approvalCertificates,
   approvalHistory,
   auditLogs,
+  businessCaseLinks,
   businessCases,
   documents,
   opportunities,
@@ -31,6 +32,7 @@ type DbRole = (typeof users.$inferSelect)["role"];
 type DbStatus = (typeof opportunities.$inferSelect)["status"];
 type DbBusinessCaseType = (typeof businessCases.$inferSelect)["type"];
 type DbDecision = (typeof businessCases.$inferSelect)["decisionOutput"];
+type DbDocumentType = (typeof documents.$inferSelect)["type"];
 
 const roleToDb: Record<Role, DbRole> = {
   "Account Manager": "ACCOUNT_MANAGER",
@@ -111,8 +113,77 @@ export const projectInputSchema = z.object({
 
 export type ProjectInput = z.infer<typeof projectInputSchema>;
 
+export const bcLinkInputSchema = z.object({
+  linkName: z.string().min(1),
+  material: z.coerce.number().nonnegative(),
+  labor: z.coerce.number().nonnegative(),
+  wayleave: z.coerce.number().nonnegative(),
+  mrr: z.coerce.number().nonnegative(),
+  mrc: z.coerce.number().nonnegative(),
+  nrc: z.coerce.number().nonnegative(),
+  nrr: z.coerce.number().nonnegative(),
+  evidenceAttachmentIndex: z.number().int().nonnegative(),
+});
+
+export const bcSubmissionInputSchema = z.object({
+  opportunityNumber: z.string().min(2),
+  customerName: z.string().min(2),
+  solutionArchitectureName: z.string().min(2),
+  solutionEngineerName: z.string().min(2),
+  accountManagerName: z.string().min(2),
+  region: z.string().min(2).default("Unassigned"),
+  type: z.enum(["Ordinary BC", "Margin Analysis BC"]),
+  irr: z.coerce.number(),
+  payback: z.coerce.number().int().positive(),
+  capex: z.coerce.number().nonnegative(),
+  subsidy: z.coerce.number().nonnegative(),
+  approvedBudget: z.coerce.number().nonnegative(),
+  links: z.array(bcLinkInputSchema).min(1),
+  attachments: z.array(
+    z.object({
+      type: z.enum(["BC_TEMPLATE", "PBOQ", "ORDER_FORM", "ACTUAL_SURVEY_QUOTE"]),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    }),
+  ),
+});
+
+export type BcSubmissionInput = z.infer<typeof bcSubmissionInputSchema>;
+
+export type ProjectLinkRecord = {
+  id: string;
+  linkName: string;
+  material: number;
+  labor: number;
+  wayleave: number;
+  mrr: number;
+  mrc: number;
+  nrc: number;
+  nrr: number;
+  evidenceDocumentId: string | null;
+};
+
+export type ProjectDocumentRecord = {
+  id: string;
+  type: DbDocumentType;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
 export type ProjectRecord = ProjectInput & {
   id: string;
+  solutionArchitectureName: string;
+  solutionEngineerName: string;
+  links: ProjectLinkRecord[];
+  documents: ProjectDocumentRecord[];
+  totalMrr: number;
+  totalMrc: number;
+  totalNrc: number;
+  totalNrr: number;
   decision: DecisionOutput;
   variance: number;
   revisions: number;
@@ -207,6 +278,48 @@ async function getLatestActuals(opportunityId: string, businessCaseId?: string) 
   return actuals;
 }
 
+async function getBusinessCaseLinks(businessCaseId?: string): Promise<ProjectLinkRecord[]> {
+  const db = getDb();
+
+  if (!businessCaseId) return [];
+
+  const rows = await db
+    .select()
+    .from(businessCaseLinks)
+    .where(eq(businessCaseLinks.businessCaseId, businessCaseId));
+
+  return rows.map((row) => ({
+    id: row.id,
+    linkName: row.linkName,
+    material: dbNumber(row.material),
+    labor: dbNumber(row.labor),
+    wayleave: dbNumber(row.wayleave),
+    mrr: dbNumber(row.mrr),
+    mrc: dbNumber(row.mrc),
+    nrc: dbNumber(row.nrc),
+    nrr: dbNumber(row.nrr),
+    evidenceDocumentId: row.evidenceDocumentId,
+  }));
+}
+
+async function getProjectDocuments(opportunityId: string): Promise<ProjectDocumentRecord[]> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(eq(documents.opportunityId, opportunityId))
+    .orderBy(desc(documents.createdAt));
+
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
 async function toProjectRecord(
   opportunity: typeof opportunities.$inferSelect,
 ): Promise<ProjectRecord | undefined> {
@@ -219,6 +332,10 @@ async function toProjectRecord(
   const businessCase = await getLatestBusinessCase(opportunity.id);
   const assignment = await getLatestAssignment(opportunity.id);
   const actuals = await getLatestActuals(opportunity.id, businessCase?.id);
+  const [links, projectDocuments] = await Promise.all([
+    getBusinessCaseLinks(businessCase?.id),
+    getProjectDocuments(opportunity.id),
+  ]);
 
   if (!businessCase) {
     return undefined;
@@ -239,6 +356,14 @@ async function toProjectRecord(
     title: opportunity.opportunityName,
     region: opportunity.region,
     owner: accountManager?.name ?? "Unassigned",
+    solutionArchitectureName: businessCase.solutionArchitectureName,
+    solutionEngineerName: businessCase.solutionEngineerName,
+    links,
+    documents: projectDocuments,
+    totalMrr: links.reduce((total, link) => total + link.mrr, 0),
+    totalMrc: links.reduce((total, link) => total + link.mrc, 0),
+    totalNrc: links.reduce((total, link) => total + link.nrc, 0),
+    totalNrr: links.reduce((total, link) => total + link.nrr, 0),
     state: dbToStatus[opportunity.status],
     roleQueue: assignment ? dbToRole[assignment.role] : "Account Manager",
     type: dbToType[businessCase.type],
@@ -327,6 +452,139 @@ async function insertAssignment(opportunityId: string, input: ProjectInput) {
     assigneeId: assignee.id,
     status: statusToDb[input.state],
   });
+}
+
+export async function createBcSubmission(input: BcSubmissionInput) {
+  const validated = bcSubmissionInputSchema.parse(input);
+  const db = getDb();
+  const accountManager = await findOrCreateUser(
+    validated.accountManagerName,
+    "Account Manager",
+  );
+  const decision = deriveDecision({
+    irr: validated.irr,
+    paybackMonths: validated.payback,
+    subsidyRequirement: validated.subsidy,
+    capex: validated.capex,
+  });
+  const financeRole: Role = decision.requiresCfo ? "CFO" : "BC Analyst / Finance";
+  const financeAssignee = await findOrCreateUser(financeRole, financeRole);
+  const [existing] = await db
+    .select({ id: opportunities.id })
+    .from(opportunities)
+    .where(eq(opportunities.reference, validated.opportunityNumber))
+    .limit(1);
+
+  if (existing) {
+    throw new Error("Opportunity number already exists.");
+  }
+
+  const [opportunity] = await db
+    .insert(opportunities)
+    .values({
+      reference: validated.opportunityNumber,
+      customerName: validated.customerName,
+      opportunityName: `${validated.customerName} BC submission`,
+      region: validated.region,
+      segment: "Enterprise",
+      accountManagerId: accountManager.id,
+      status: "FINANCE_CFO_APPROVAL",
+      priority: "Normal",
+    })
+    .returning();
+
+  const [businessCase] = await db
+    .insert(businessCases)
+    .values({
+      opportunityId: opportunity.id,
+      version: 1,
+      type: typeToDb[validated.type],
+      solutionArchitectureName: validated.solutionArchitectureName,
+      solutionEngineerName: validated.solutionEngineerName,
+      irr: toNumeric(validated.irr),
+      paybackMonths: validated.payback,
+      capex: toNumeric(validated.capex),
+      subsidyRequirement: toNumeric(validated.subsidy),
+      approvedBudget: toNumeric(validated.approvedBudget),
+      decisionOutput: decisionToDb[decision.decision],
+      requiresCfo: decision.requiresCfo,
+      subsidyDisclosed: validated.subsidy > 0,
+      submittedAt: new Date(),
+    })
+    .returning();
+
+  const createdDocuments = await Promise.all(
+    validated.attachments.map((attachment) =>
+      db
+        .insert(documents)
+        .values({
+          opportunityId: opportunity.id,
+          uploadedById: accountManager.id,
+          type: attachment.type,
+          name: attachment.name,
+          storageKey: attachment.storageKey,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+        })
+        .returning(),
+    ),
+  );
+  const documentIds = createdDocuments.map(([document]) => document.id);
+
+  await db.insert(businessCaseLinks).values(
+    validated.links.map((link) => ({
+      businessCaseId: businessCase.id,
+      linkName: link.linkName,
+      material: toNumeric(link.material),
+      labor: toNumeric(link.labor),
+      wayleave: toNumeric(link.wayleave),
+      mrr: toNumeric(link.mrr),
+      mrc: toNumeric(link.mrc),
+      nrc: toNumeric(link.nrc),
+      nrr: toNumeric(link.nrr),
+      evidenceDocumentId: documentIds[link.evidenceAttachmentIndex],
+    })),
+  );
+
+  await db.insert(workflowAssignments).values({
+    opportunityId: opportunity.id,
+    role: roleToDb[financeRole],
+    assigneeId: financeAssignee.id,
+    status: "FINANCE_CFO_APPROVAL",
+  });
+
+  await db.insert(approvalHistory).values({
+    opportunityId: opportunity.id,
+    businessCaseId: businessCase.id,
+    actorId: accountManager.id,
+    role: "ACCOUNT_MANAGER",
+    action: "SUBMIT",
+    fromStatus: "OPPORTUNITY_CREATED",
+    toStatus: "FINANCE_CFO_APPROVAL",
+    decision: decisionToDb[decision.decision],
+    notes: decision.reason,
+  });
+
+  await db.insert(auditLogs).values({
+    opportunityId: opportunity.id,
+    actorId: accountManager.id,
+    event: "BC_SUBMITTED_TO_FINANCE",
+    entityType: "BusinessCase",
+    entityId: businessCase.id,
+    metadata: {
+      financeRole,
+      linkCount: validated.links.length,
+      attachmentCount: validated.attachments.length,
+    },
+  });
+
+  const project = await toProjectRecord(opportunity);
+
+  if (!project) {
+    throw new Error("BC submission was created but could not be read.");
+  }
+
+  return project;
 }
 
 export async function listProjects() {
@@ -440,6 +698,9 @@ export async function deleteProject(id: string) {
     .where(eq(businessCases.opportunityId, opportunity.id));
 
   for (const businessCase of projectBusinessCases) {
+    await db
+      .delete(businessCaseLinks)
+      .where(eq(businessCaseLinks.businessCaseId, businessCase.id));
     await db
       .delete(approvalCertificates)
       .where(eq(approvalCertificates.businessCaseId, businessCase.id));

@@ -17,7 +17,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold text-[#1f3760]">
+    <label className="grid gap-2 text-sm font-medium text-[color:var(--color-muted-strong)]">
       <span>{label}</span>
       {children}
     </label>
@@ -60,7 +60,7 @@ export function ProjectForm({
           </Button>
         }
       />
-      <div className="mx-auto max-w-6xl space-y-5 px-6 pb-8 pt-6">
+      <div className="mx-auto max-w-6xl space-y-4 px-6 pb-8 pt-6">
         <Card>
           <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
             <CardTitle className="text-sm">Project Form</CardTitle>
@@ -68,149 +68,149 @@ export function ProjectForm({
           <CardContent className="p-4">
             <form action={action} className="space-y-5">
               <section className="grid gap-4 md:grid-cols-2">
-                <h2 className="text-sm font-bold text-[color:var(--color-primary)] md:col-span-2">
+                <h2 className="text-sm font-semibold text-[color:var(--color-primary)] md:col-span-2">
                   Basic Information
                 </h2>
-              <Field label="Customer">
-                <Input
-                  name="customer"
-                  autoComplete="off"
-                  defaultValue={project?.customer}
-                  placeholder="Kijani Retail Group…"
-                  required
-                />
-              </Field>
-              <Field label="Region">
-                <Input
-                  name="region"
-                  autoComplete="off"
-                  defaultValue={project?.region}
-                  placeholder="Nairobi…"
-                  required
-                />
-              </Field>
-              <Field label="Project Title">
-                <Textarea
-                  name="title"
-                  autoComplete="off"
-                  defaultValue={project?.title}
-                  placeholder="Metro fiber build…"
-                  required
-                />
-              </Field>
-              <Field label="Owner">
-                <Input
-                  name="owner"
-                  autoComplete="off"
-                  defaultValue={project?.owner}
-                  placeholder="A. Mwangi…"
-                  required
-                />
-              </Field>
+                <Field label="Customer">
+                  <Input
+                    name="customer"
+                    autoComplete="off"
+                    defaultValue={project?.customer}
+                    placeholder="Kijani Retail Group…"
+                    required
+                  />
+                </Field>
+                <Field label="Region">
+                  <Input
+                    name="region"
+                    autoComplete="off"
+                    defaultValue={project?.region}
+                    placeholder="Nairobi…"
+                    required
+                  />
+                </Field>
+                <Field label="Project Title">
+                  <Textarea
+                    name="title"
+                    autoComplete="off"
+                    defaultValue={project?.title}
+                    placeholder="Metro fiber build…"
+                    required
+                  />
+                </Field>
+                <Field label="Owner">
+                  <Input
+                    name="owner"
+                    autoComplete="off"
+                    defaultValue={project?.owner}
+                    placeholder="A. Mwangi…"
+                    required
+                  />
+                </Field>
               </section>
               <section className="grid gap-4 md:grid-cols-2">
-                <h2 className="text-sm font-bold text-[color:var(--color-primary)] md:col-span-2">
+                <h2 className="text-sm font-semibold text-[color:var(--color-primary)] md:col-span-2">
                   Workflow Routing
                 </h2>
-              <Field label="Lifecycle Stage">
-                <Select name="state" defaultValue={project?.state ?? workflowStates[0]}>
-                  {workflowStates.map((state) => (
-                    <option key={state}>{state}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Role Queue">
-                <Select name="roleQueue" defaultValue={project?.roleQueue ?? roles[0]}>
-                  {roles.map((role) => (
-                    <option key={role}>{role}</option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="BC Type">
-                <Select name="type" defaultValue={project?.type ?? "Ordinary BC"}>
-                  <option>Ordinary BC</option>
-                  <option>Margin Analysis BC</option>
-                </Select>
-              </Field>
-              <Field label="Due">
-                <Input
-                  name="due"
-                  autoComplete="off"
-                  defaultValue={project?.due ?? "Today"}
-                  placeholder="Today…"
-                  required
-                />
-              </Field>
+                <Field label="Lifecycle Stage">
+                  <Select name="state" defaultValue={project?.state ?? workflowStates[0]}>
+                    {workflowStates.map((state) => (
+                      <option key={state}>{state}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Role Queue">
+                  <Select name="roleQueue" defaultValue={project?.roleQueue ?? roles[0]}>
+                    {roles.map((role) => (
+                      <option key={role}>{role}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="BC Type">
+                  <Select name="type" defaultValue={project?.type ?? "Ordinary BC"}>
+                    <option>Ordinary BC</option>
+                    <option>Margin Analysis BC</option>
+                  </Select>
+                </Field>
+                <Field label="Due">
+                  <Input
+                    name="due"
+                    autoComplete="off"
+                    defaultValue={project?.due ?? "Today"}
+                    placeholder="Today…"
+                    required
+                  />
+                </Field>
               </section>
               <section className="grid gap-4 md:grid-cols-2">
-                <h2 className="text-sm font-bold text-[color:var(--color-primary)] md:col-span-2">
+                <h2 className="text-sm font-semibold text-[color:var(--color-primary)] md:col-span-2">
                   Financial Inputs
                 </h2>
-              <Field label="IRR">
-                <Input
-                  name="irr"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.1"
-                  defaultValue={project?.irr ?? 18}
-                  required
-                />
-              </Field>
-              <Field label="Payback Months">
-                <Input
-                  name="payback"
-                  type="number"
-                  inputMode="numeric"
-                  defaultValue={project?.payback ?? 36}
-                  required
-                />
-              </Field>
-              <Field label="Capex">
-                <Input
-                  name="capex"
-                  type="number"
-                  inputMode="decimal"
-                  defaultValue={project?.capex ?? 0}
-                  required
-                />
-              </Field>
-              <Field label="Subsidy Requirement">
-                <Input
-                  name="subsidy"
-                  type="number"
-                  inputMode="decimal"
-                  defaultValue={project?.subsidy ?? 0}
-                  required
-                />
-              </Field>
-              <Field label="Approved Budget">
-                <Input
-                  name="approvedBudget"
-                  type="number"
-                  inputMode="decimal"
-                  defaultValue={project?.approvedBudget ?? 0}
-                  required
-                />
-              </Field>
-              <Field label="Actual Spend">
-                <Input
-                  name="actualSpend"
-                  type="number"
-                  inputMode="decimal"
-                  defaultValue={project?.actualSpend ?? 0}
-                  required
-                />
-              </Field>
-              <Field label="Survey Deviation">
-                <Input
-                  name="surveyDeviation"
-                  type="number"
-                  inputMode="decimal"
-                  step="0.1"
-                  defaultValue={project?.surveyDeviation ?? 0}
-                  required
-                />
-              </Field>
+                <Field label="IRR">
+                  <Input
+                    name="irr"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.1"
+                    defaultValue={project?.irr ?? 18}
+                    required
+                  />
+                </Field>
+                <Field label="Payback Months">
+                  <Input
+                    name="payback"
+                    type="number"
+                    inputMode="numeric"
+                    defaultValue={project?.payback ?? 36}
+                    required
+                  />
+                </Field>
+                <Field label="Capex">
+                  <Input
+                    name="capex"
+                    type="number"
+                    inputMode="decimal"
+                    defaultValue={project?.capex ?? 0}
+                    required
+                  />
+                </Field>
+                <Field label="Subsidy Requirement">
+                  <Input
+                    name="subsidy"
+                    type="number"
+                    inputMode="decimal"
+                    defaultValue={project?.subsidy ?? 0}
+                    required
+                  />
+                </Field>
+                <Field label="Approved Budget">
+                  <Input
+                    name="approvedBudget"
+                    type="number"
+                    inputMode="decimal"
+                    defaultValue={project?.approvedBudget ?? 0}
+                    required
+                  />
+                </Field>
+                <Field label="Actual Spend">
+                  <Input
+                    name="actualSpend"
+                    type="number"
+                    inputMode="decimal"
+                    defaultValue={project?.actualSpend ?? 0}
+                    required
+                  />
+                </Field>
+                <Field label="Survey Deviation">
+                  <Input
+                    name="surveyDeviation"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.1"
+                    defaultValue={project?.surveyDeviation ?? 0}
+                    required
+                  />
+                </Field>
               </section>
               <div className="flex items-end">
                 <Button type="submit">

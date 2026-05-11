@@ -71,10 +71,13 @@ export const approvalAction = pgEnum("ApprovalAction", [
 export const documentType = pgEnum("DocumentType", [
   "SOLUTION_DESIGN",
   "PBOQ",
+  "BC_TEMPLATE",
   "BUSINESS_CASE",
   "SITE_ACQUISITION",
   "SURVEY_REPORT",
   "CONTRACTOR_QUOTE",
+  "ORDER_FORM",
+  "ACTUAL_SURVEY_QUOTE",
   "BC_APPROVAL_CERTIFICATE",
   "ACTUAL_COST_EVIDENCE",
 ]);
@@ -131,6 +134,10 @@ export const businessCases = pgTable(
       .references(() => opportunities.id),
     version: integer("version").default(1).notNull(),
     type: businessCaseType("type").notNull(),
+    solutionArchitectureName: text("solutionArchitectureName")
+      .default("Unassigned")
+      .notNull(),
+    solutionEngineerName: text("solutionEngineerName").default("Unassigned").notNull(),
     irr: numeric("irr", { precision: 8, scale: 2 }).notNull(),
     paybackMonths: integer("paybackMonths").notNull(),
     capex: numeric("capex", { precision: 14, scale: 2 }).notNull(),
@@ -147,6 +154,23 @@ export const businessCases = pgTable(
   },
   (table) => [unique().on(table.opportunityId, table.version)],
 );
+
+export const businessCaseLinks = pgTable("BusinessCaseLink", {
+  id: textId("id"),
+  businessCaseId: text("businessCaseId")
+    .notNull()
+    .references(() => businessCases.id),
+  linkName: text("linkName").notNull(),
+  material: numeric("material", { precision: 14, scale: 2 }).notNull(),
+  labor: numeric("labor", { precision: 14, scale: 2 }).notNull(),
+  wayleave: numeric("wayleave", { precision: 14, scale: 2 }).notNull(),
+  mrr: numeric("mrr", { precision: 14, scale: 2 }).notNull(),
+  mrc: numeric("mrc", { precision: 14, scale: 2 }).notNull(),
+  nrc: numeric("nrc", { precision: 14, scale: 2 }).notNull(),
+  nrr: numeric("nrr", { precision: 14, scale: 2 }).notNull(),
+  evidenceDocumentId: text("evidenceDocumentId").references(() => documents.id),
+  createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
+});
 
 export const workflowAssignments = pgTable("WorkflowAssignment", {
   id: textId("id"),
@@ -294,6 +318,18 @@ export const businessCasesRelations = relations(businessCases, ({ one, many }) =
   approvals: many(approvalHistory),
   certificate: one(approvalCertificates),
   actualCosts: many(actualCostCaptures),
+  links: many(businessCaseLinks),
+}));
+
+export const businessCaseLinksRelations = relations(businessCaseLinks, ({ one }) => ({
+  businessCase: one(businessCases, {
+    fields: [businessCaseLinks.businessCaseId],
+    references: [businessCases.id],
+  }),
+  evidenceDocument: one(documents, {
+    fields: [businessCaseLinks.evidenceDocumentId],
+    references: [documents.id],
+  }),
 }));
 
 export const workflowAssignmentsRelations = relations(workflowAssignments, ({ one }) => ({
@@ -383,3 +419,4 @@ export type Opportunity = typeof opportunities.$inferSelect;
 export type NewOpportunity = typeof opportunities.$inferInsert;
 export type BusinessCase = typeof businessCases.$inferSelect;
 export type NewBusinessCase = typeof businessCases.$inferInsert;
+export type BusinessCaseLink = typeof businessCaseLinks.$inferSelect;

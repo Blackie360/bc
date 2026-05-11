@@ -49,14 +49,14 @@ export default async function DeleteProjectPage({
           </Button>
         }
       />
-      <div className="mx-auto max-w-3xl space-y-5 px-6 pb-8 pt-6">
+      <div className="mx-auto max-w-3xl space-y-4 px-6 pb-8 pt-6">
         <Card>
           <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
             <CardTitle>Delete Project</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-4">
-            <div className="rounded-lg border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] p-4">
-              <p className="font-bold">{project.customer}</p>
+            <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] p-4">
+              <p className="font-medium">{project.customer}</p>
               <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
               <p className="mt-3 text-sm text-[color:var(--color-warning-text)]">
                 This permanently deletes the project, business case versions,

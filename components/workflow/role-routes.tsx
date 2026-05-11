@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  ArrowRight,
   Search,
   Plus,
 } from "lucide-react";
@@ -139,59 +138,6 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                 {stage.state} ({stage.count})
               </Badge>
             ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle className="text-sm">Available Role Routes</CardTitle>
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--color-surface-soft)] px-1.5 text-xs font-bold text-[color:var(--color-primary)]">
-              {roleRoutes.length}
-            </span>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-left text-sm">
-                <thead className="bg-[color:var(--color-surface-soft)] text-[11px] uppercase text-[color:var(--color-muted)]">
-                  <tr>
-                    <th className="px-4 py-3 font-bold">Role</th>
-                    <th className="px-4 py-3 font-bold">Responsibility</th>
-                    <th className="px-4 py-3 font-bold">Workflow Routes</th>
-                    <th className="px-4 py-3 font-bold">Queue</th>
-                    <th className="px-4 py-3 font-bold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[color:var(--color-border)]">
-                  {roleRoutes.map((route) => (
-                    <tr key={route.role} className="hover:bg-[color:var(--color-surface-soft)]">
-                      <td className="px-4 py-4">
-                        <p className="font-bold">{route.role}</p>
-                        <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">
-                          {roleCodes[route.role]}
-                        </p>
-                      </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{roleDescriptions[route.role]}</td>
-                      <td className="px-4 py-4">
-                        <Badge variant={route.transitions.length > 0 ? "info" : "warning"}>
-                          {route.transitions.length} route
-                          {route.transitions.length === 1 ? "" : "s"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-4 text-[#1f3760]">
-                        {projects.filter((item) => item.roleQueue === route.role).length}
-                      </td>
-                      <td className="px-4 py-4">
-                        <Button asChild size="sm">
-                          <Link href={route.href}>
-                            Open
-                            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                          </Link>
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </CardContent>
         </Card>
       </div>
