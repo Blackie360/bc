@@ -212,7 +212,6 @@ export const lifecycleStages = workflowStates.map((state, index) => {
   return {
     state,
     slug: slugify(state),
-    href: `/lifecycle/${slugify(state)}`,
     index,
     owner: incoming?.owner ?? outgoing?.owner ?? "BC Analyst / Finance",
     incoming,

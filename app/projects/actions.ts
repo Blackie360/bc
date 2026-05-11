@@ -19,7 +19,6 @@ function parseProjectForm(formData: FormData) {
 function revalidateProjectViews() {
   revalidatePath("/projects");
   revalidatePath("/roles");
-  revalidatePath("/lifecycle");
 }
 
 export async function createProjectAction(formData: FormData) {

@@ -4,7 +4,7 @@ import { createBcSubmissionAction } from "@/app/projects/actions";
 import { Button } from "@/components/ui/button";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { BcSubmissionForm } from "@/components/workflow/bc-submission-form";
-import { lifecycleStages, roleRoutes } from "@/lib/workflow";
+import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +16,7 @@ export default function NewProjectPage() {
       subtitle="BC submission"
       badgeLabel="AM"
       primaryActive="projects"
-      workflowLinks={[
-        ...roleRoutes.map((route) => ({ href: route.href, label: route.role })),
-        ...lifecycleStages.slice(0, 5).map((stage) => ({
-          href: stage.href,
-          label: `${stage.index + 1}. ${stage.state}`,
-        })),
-      ]}
+      workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
     >
       <ShellHeading
         title="Account Manager BC Submission"

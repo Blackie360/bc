@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ProjectRecord } from "@/lib/projects";
-import { lifecycleStages, roleRoutes, roles, workflowStates } from "@/lib/workflow";
+import { roleRoutes, roles, workflowStates } from "@/lib/workflow";
 
 function Field({
   label,
@@ -40,13 +40,7 @@ export function ProjectForm({
       subtitle="Create and maintain workflow records"
       badgeLabel="Admin"
       primaryActive="projects"
-      workflowLinks={[
-        ...roleRoutes.map((route) => ({ href: route.href, label: route.role })),
-        ...lifecycleStages.slice(0, 5).map((stage) => ({
-          href: stage.href,
-          label: `${stage.index + 1}. ${stage.state}`,
-        })),
-      ]}
+      workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
     >
       <ShellHeading
         title={title}

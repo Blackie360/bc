@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getProject } from "@/lib/projects";
-import { lifecycleStages, roleRoutes } from "@/lib/workflow";
+import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -40,13 +40,7 @@ export default async function ProjectDetailPage({
       subtitle={project.id}
       badgeLabel={project.roleQueue}
       primaryActive="projects"
-      workflowLinks={[
-        ...roleRoutes.map((route) => ({ href: route.href, label: route.role })),
-        ...lifecycleStages.slice(0, 5).map((stage) => ({
-          href: stage.href,
-          label: `${stage.index + 1}. ${stage.state}`,
-        })),
-      ]}
+      workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
     >
       <ShellHeading
         title={project.customer}

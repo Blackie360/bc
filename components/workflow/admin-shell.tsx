@@ -14,13 +14,11 @@ type WorkflowLink = {
   active?: boolean;
 };
 
-type PrimaryKey = "dashboard" | "lifecycle" | "projects" | "reports";
+type PrimaryKey = "dashboard" | "projects";
 
 const primaryNav: { key: PrimaryKey; href: string; label: string }[] = [
   { key: "dashboard", href: "/roles", label: "Dashboard" },
-  { key: "lifecycle", href: "/lifecycle", label: "Lifecycle" },
   { key: "projects", href: "/projects", label: "Projects" },
-  { key: "reports", href: "/lifecycle", label: "Reports" },
 ];
 
 export function AdminShell({
@@ -36,7 +34,7 @@ export function AdminShell({
   children: React.ReactNode;
   code: string;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   badgeLabel: string;
   primaryActive: PrimaryKey;
   workflowLinks: WorkflowLink[];
@@ -65,7 +63,9 @@ export function AdminShell({
                 <p className="truncate text-sm font-medium text-[color:var(--color-primary)]">
                   {title}
                 </p>
-                <p className="truncate text-xs text-[color:var(--color-muted)]">{subtitle}</p>
+                {subtitle ? (
+                  <p className="truncate text-xs text-[color:var(--color-muted)]">{subtitle}</p>
+                ) : null}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">

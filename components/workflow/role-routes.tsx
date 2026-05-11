@@ -4,7 +4,6 @@ import {
   Plus,
 } from "lucide-react";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,8 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  getLifecycleStagesForRole,
-  lifecycleStages,
   roleRoutes,
   type Role,
   workflowTransitions,
@@ -47,6 +44,12 @@ const roleCodes: Record<Role, string> = {
 
 type Transition = (typeof workflowTransitions)[number];
 
+const CLOSED_STATE = "Project Closure & Reporting" as const;
+
+function isOngoingProject(project: ProjectRecord) {
+  return project.state !== CLOSED_STATE;
+}
+
 function RouteStatus({ transition }: { transition?: Transition }) {
   if (!transition) {
     return (
@@ -64,10 +67,10 @@ function RouteStatus({ transition }: { transition?: Transition }) {
 }
 
 export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
-  const stageCounts = lifecycleStages.map((stage) => ({
-    state: stage.state,
-    count: projects.filter((project) => project.state === stage.state).length,
-  }));
+  const ongoingProjects = [...projects.filter(isOngoingProject)].sort((a, b) =>
+    b.updatedAt.localeCompare(a.updatedAt),
+  );
+  const closedCount = projects.filter((project) => project.state === CLOSED_STATE).length;
 
   return (
     <AdminShell
@@ -103,7 +106,7 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                 Active Projects
               </p>
               <p className="mt-1 text-2xl font-bold text-[color:var(--color-primary)]">
-                {projects.length}
+                {ongoingProjects.length}
               </p>
             </CardContent>
           </Card>
@@ -113,31 +116,75 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                 Open Queues
               </p>
               <p className="mt-1 text-2xl font-bold text-[color:var(--color-primary)]">
-                {new Set(projects.map((project) => project.roleQueue)).size}
+                {new Set(ongoingProjects.map((project) => project.roleQueue)).size}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <p className="text-[11px] font-semibold uppercase text-[color:var(--color-muted)]">
-                Stages Covered
+                Closed Projects
               </p>
               <p className="mt-1 text-2xl font-bold text-[color:var(--color-primary)]">
-                {stageCounts.filter((stage) => stage.count > 0).length}
+                {closedCount}
               </p>
             </CardContent>
           </Card>
         </section>
         <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle className="text-sm">Stage Overview</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
+            <CardTitle className="text-sm">Ongoing Projects</CardTitle>
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--color-surface-soft)] px-1.5 text-xs font-bold text-[color:var(--color-primary)]">
+              {ongoingProjects.length}
+            </span>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-2 p-4">
-            {stageCounts.map((stage) => (
-              <Badge key={stage.state} variant={stage.count > 0 ? "info" : "default"}>
-                {stage.state} ({stage.count})
-              </Badge>
-            ))}
+          <CardContent className="p-0">
+            <div className="overflow-x-auto p-4">
+              <table className="w-full min-w-[860px] overflow-hidden rounded-lg border border-[color:var(--color-border)] text-left text-sm">
+                <thead className="bg-[color:var(--color-surface-soft)] text-[11px] uppercase text-[color:var(--color-muted)]">
+                  <tr>
+                    <th className="px-4 py-3 font-bold">Project</th>
+                    <th className="px-4 py-3 font-bold">Stage</th>
+                    <th className="px-4 py-3 font-bold">Role queue</th>
+                    <th className="px-4 py-3 font-bold">Last updated</th>
+                    <th className="px-4 py-3 font-bold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[color:var(--color-border)]">
+                  {ongoingProjects.map((item) => (
+                    <tr key={item.id} className="hover:bg-[color:var(--color-surface-soft)]">
+                      <td className="px-4 py-4">
+                        <p className="font-bold">{item.customer}</p>
+                        <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">
+                          {item.id}
+                        </p>
+                      </td>
+                      <td className="max-w-[220px] px-4 py-4 text-[color:var(--color-muted-strong)]">
+                        {item.state}
+                      </td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
+                        {item.roleQueue}
+                      </td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
+                        {item.updatedAt}
+                      </td>
+                      <td className="px-4 py-4">
+                        <Button asChild size="sm">
+                          <Link href={`/projects/${item.id}`}>View</Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {ongoingProjects.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={5}>
+                        No ongoing projects. All projects are in closure or the register is empty.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -157,8 +204,6 @@ export function RoleRoutePage({
 
   if (!route) return null;
 
-  const visibleStages = getLifecycleStagesForRole(role);
-
   return (
     <AdminShell
       code={roleCodes[role]}
@@ -168,10 +213,6 @@ export function RoleRoutePage({
       primaryActive="dashboard"
       workflowTitle="My Stages"
       workflowLinks={[
-        ...visibleStages.map((stage) => ({
-          href: stage.href,
-          label: `${stage.index + 1}. ${stage.state}`,
-        })),
         {
           href: route.href,
           label: "Assigned Queue",
