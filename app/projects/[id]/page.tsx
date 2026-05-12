@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Send } from "lucide-react";
+import { decideFinanceWorkflowAction } from "@/app/projects/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import { getProject } from "@/lib/projects";
 import { lifecycleStages, roleRoutes } from "@/lib/workflow";
 
@@ -21,6 +23,35 @@ function money(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function FinanceDecisionForm({
+  action,
+  decision,
+  label,
+  notesPlaceholder,
+  variant = "secondary",
+}: {
+  action: (formData: FormData) => void | Promise<void>;
+  decision: string;
+  label: string;
+  notesPlaceholder: string;
+  variant?: "default" | "secondary" | "warning";
+}) {
+  return (
+    <form action={action} className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-white p-3">
+      <input type="hidden" name="decision" value={decision} />
+      <Textarea name="notes" placeholder={notesPlaceholder} />
+      <Button type="submit" variant={variant} size="sm">
+        {decision === "approve" ? (
+          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+        ) : (
+          <Send className="h-4 w-4" aria-hidden="true" />
+        )}
+        {label}
+      </Button>
+    </form>
+  );
+}
+
 export default async function ProjectDetailPage({
   params,
 }: {
@@ -32,6 +63,9 @@ export default async function ProjectDetailPage({
   if (!project) {
     notFound();
   }
+
+  const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
+  const isFinanceStage = project.state === "Finance / CFO Approval";
 
   return (
     <AdminShell
@@ -137,6 +171,45 @@ export default async function ProjectDetailPage({
             </div>
           </CardContent>
         </Card>
+        {isFinanceStage ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>Finance Decision</CardTitle>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                Approve to Sales Operations, or reject with the next route for follow-up.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-3 p-4 md:grid-cols-2">
+              <FinanceDecisionForm
+                action={financeAction}
+                decision="approve"
+                label="Approve to Sales Operations"
+                notesPlaceholder="Optional approval notes"
+              />
+              <FinanceDecisionForm
+                action={financeAction}
+                decision="reject-escalate-cfo"
+                label="Reject and Escalate to CFO"
+                notesPlaceholder="Explain why CFO review is needed"
+                variant="warning"
+              />
+              <FinanceDecisionForm
+                action={financeAction}
+                decision="reject-question-architect"
+                label="Reject and Ask Solutions Architect"
+                notesPlaceholder="Question for the Solutions Architect"
+                variant="warning"
+              />
+              <FinanceDecisionForm
+                action={financeAction}
+                decision="reject-question-engineer"
+                label="Reject and Ask Solutions Engineer"
+                notesPlaceholder="Question for the Solutions Engineer"
+                variant="warning"
+              />
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
             <CardTitle>Link Items</CardTitle>

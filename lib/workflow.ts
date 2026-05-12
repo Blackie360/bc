@@ -3,6 +3,8 @@ import { z } from "zod";
 export const roles = [
   "Account Manager",
   "Fiber Planning Team",
+  "Solutions Architect",
+  "Solutions Engineer",
   "BC Analyst / Finance",
   "CFO",
   "Sales Operations",
@@ -143,7 +145,25 @@ export const workflowTransitions = [
     from: "Finance / CFO Approval",
     to: "Sales Operations Validation",
     owner: "Sales Operations",
-    rule: "Validate certificate pack, approval trail, and subsidy disclosure.",
+    rule: "Approved finance cases move to Sales Operations for certificate and approval trail validation.",
+  },
+  {
+    from: "Finance / CFO Approval",
+    to: "Finance / CFO Approval",
+    owner: "CFO",
+    rule: "Rejected finance cases that exceed threshold or need executive judgement are escalated to the CFO.",
+  },
+  {
+    from: "Finance / CFO Approval",
+    to: "Business Case Prepared",
+    owner: "Solutions Architect",
+    rule: "Rejected finance cases with design questions are returned to the Solutions Architect for clarification.",
+  },
+  {
+    from: "Finance / CFO Approval",
+    to: "Business Case Prepared",
+    owner: "Solutions Engineer",
+    rule: "Rejected finance cases with technical costing questions are returned to the Solutions Engineer for clarification.",
   },
   {
     from: "Sales Operations Validation",

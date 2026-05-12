@@ -17,6 +17,8 @@ const textId = (name: string) => text(name).primaryKey().$defaultFn(randomUUID);
 export const userRole = pgEnum("UserRole", [
   "ACCOUNT_MANAGER",
   "FIBER_PLANNING",
+  "SOLUTION_ARCHITECT",
+  "SOLUTION_ENGINEER",
   "BC_ANALYST",
   "CFO",
   "SALES_OPERATIONS",

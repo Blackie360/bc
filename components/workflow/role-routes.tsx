@@ -24,6 +24,8 @@ import type { ProjectRecord } from "@/lib/projects";
 const roleDescriptions: Record<Role, string> = {
   "Account Manager": "Opportunity intake and PBOQ initiation",
   "Fiber Planning Team": "Planning pack and PBOQ submissions",
+  "Solutions Architect": "Design clarification and solution questions",
+  "Solutions Engineer": "Technical costing and implementation clarification",
   "BC Analyst / Finance": "Business case finance review",
   CFO: "Threshold escalation approvals",
   "Sales Operations": "Certificate and approval trail validation",
@@ -36,6 +38,8 @@ const roleDescriptions: Record<Role, string> = {
 const roleCodes: Record<Role, string> = {
   "Account Manager": "AM",
   "Fiber Planning Team": "PLN",
+  "Solutions Architect": "SA",
+  "Solutions Engineer": "SE",
   "BC Analyst / Finance": "BC",
   CFO: "CFO",
   "Sales Operations": "OPS",
