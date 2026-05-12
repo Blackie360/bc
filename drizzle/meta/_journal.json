@@ -15,6 +15,13 @@
       "when": 1778499450990,
       "tag": "0001_puzzling_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778502540000,
+      "tag": "0002_finance_decision_routes",
+      "breakpoints": true
     }
   ]
 }

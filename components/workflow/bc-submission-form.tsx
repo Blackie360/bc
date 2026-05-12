@@ -119,7 +119,12 @@ export function BcSubmissionForm({
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">Link Items</CardTitle>
+          <div>
+            <CardTitle className="text-sm">Link Items</CardTitle>
+            <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+              Link name, material, labor, wayleave, and MRR require an Actual Survey Quote and PBOQ file.
+            </p>
+          </div>
           <Button type="button" size="sm" variant="secondary" onClick={addRow}>
             <Plus className="h-4 w-4" aria-hidden="true" />
             Link
@@ -136,7 +141,7 @@ export function BcSubmissionForm({
                       {label}
                     </th>
                   ))}
-                  <th className="px-2 py-2 font-medium">PBOQ / Quote</th>
+                  <th className="px-2 py-2 font-medium">Actual Survey Quote</th>
                   <th className="px-2 py-2 font-medium">Action</th>
                 </tr>
               </thead>

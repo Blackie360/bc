@@ -6,8 +6,10 @@ import { redirect } from "next/navigation";
 import {
   createBcSubmission,
   createProject,
+  decideFinanceWorkflow,
   deleteProject,
   type BcSubmissionInput,
+  type FinanceDecision,
   projectInputSchema,
   updateProject,
 } from "@/lib/projects";
@@ -40,6 +42,18 @@ export async function updateProjectAction(id: string, formData: FormData) {
   redirect(`/projects/${project.id}`);
 }
 
+export async function decideFinanceWorkflowAction(id: string, formData: FormData) {
+  const project = await decideFinanceWorkflow(
+    id,
+    financeDecisionField(formData),
+    textField(formData, "notes"),
+  );
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
 export async function deleteProjectAction(formData: FormData) {
   const id = zString(formData.get("id"));
   await deleteProject(id);
@@ -53,6 +67,21 @@ function zString(value: FormDataEntryValue | null) {
   }
 
   return value;
+}
+
+function financeDecisionField(formData: FormData): FinanceDecision {
+  const value = textField(formData, "decision");
+
+  if (
+    value === "approve" ||
+    value === "reject-escalate-cfo" ||
+    value === "reject-question-architect" ||
+    value === "reject-question-engineer"
+  ) {
+    return value;
+  }
+
+  throw new Error("Finance decision is required.");
 }
 
 const linkFieldNames = [
@@ -70,9 +99,10 @@ type LinkFieldName = (typeof linkFieldNames)[number];
 type RawLinkRow = Partial<Record<LinkFieldName, string>>;
 
 function parseBcSubmissionForm(formData: FormData): BcSubmissionInput {
+  const pboqAttachment = fileAttachment(formData, "pboqFile", "PBOQ");
   const attachments: BcSubmissionInput["attachments"] = [
     fileAttachment(formData, "bcTemplate", "BC_TEMPLATE"),
-    fileAttachment(formData, "pboqFile", "PBOQ"),
+    pboqAttachment,
     fileAttachment(formData, "orderForm", "ORDER_FORM"),
   ];
   const rawRows = new Map<number, RawLinkRow>();
@@ -99,17 +129,17 @@ function parseBcSubmissionForm(formData: FormData): BcSubmissionInput {
     .sort(([left], [right]) => left - right)
     .filter(([, row]) => Object.values(row).some((value) => value && value.length > 0))
     .map(([index, row]) => {
-      const requiresEvidence =
-        Boolean(row.linkName) &&
-        Boolean(row.material) &&
-        Boolean(row.labor) &&
-        Boolean(row.wayleave) &&
-        Boolean(row.mrr);
+      const hasCorePricing = hasLinkPricing(row);
       const evidenceAttachmentIndex = attachments.length;
 
-      if (requiresEvidence) {
+      if (hasCorePricing) {
         attachments.push(
-          fileAttachment(formData, `linkEvidence-${index}`, "ACTUAL_SURVEY_QUOTE"),
+          fileAttachment(
+            formData,
+            `linkEvidence-${index}`,
+            "ACTUAL_SURVEY_QUOTE",
+            "Actual survey quote is required when link pricing is submitted.",
+          ),
         );
       }
 
@@ -144,6 +174,33 @@ function parseBcSubmissionForm(formData: FormData): BcSubmissionInput {
   };
 }
 
+function hasLinkPricing(row: RawLinkRow) {
+  const requiredFields = [
+    "linkName",
+    "material",
+    "labor",
+    "wayleave",
+    "mrr",
+  ] satisfies LinkFieldName[];
+  const providedFields = requiredFields.filter((field) => {
+    const value = row[field];
+
+    return value != null && value.length > 0;
+  });
+
+  if (providedFields.length === 0) {
+    return false;
+  }
+
+  if (providedFields.length !== requiredFields.length) {
+    throw new Error(
+      "Link Name, Material, Labor, Wayleave, and MRR must be completed together.",
+    );
+  }
+
+  return true;
+}
+
 function textField(formData: FormData, name: string) {
   const value = formData.get(name);
 
@@ -154,11 +211,12 @@ function fileAttachment(
   formData: FormData,
   name: string,
   type: BcSubmissionInput["attachments"][number]["type"],
+  requiredMessage = `${name} is required.`,
 ): BcSubmissionInput["attachments"][number] {
   const value = formData.get(name);
 
   if (!(value instanceof File) || value.size === 0 || value.name.length === 0) {
-    throw new Error(`${name} is required.`);
+    throw new Error(requiredMessage);
   }
 
   return {

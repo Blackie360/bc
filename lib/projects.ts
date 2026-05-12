@@ -37,6 +37,8 @@ type DbDocumentType = (typeof documents.$inferSelect)["type"];
 const roleToDb: Record<Role, DbRole> = {
   "Account Manager": "ACCOUNT_MANAGER",
   "Fiber Planning Team": "FIBER_PLANNING",
+  "Solutions Architect": "SOLUTION_ARCHITECT",
+  "Solutions Engineer": "SOLUTION_ENGINEER",
   "BC Analyst / Finance": "BC_ANALYST",
   CFO: "CFO",
   "Sales Operations": "SALES_OPERATIONS",
@@ -190,6 +192,12 @@ export type ProjectRecord = ProjectInput & {
   createdAt: string;
   updatedAt: string;
 };
+
+export type FinanceDecision =
+  | "approve"
+  | "reject-escalate-cfo"
+  | "reject-question-architect"
+  | "reject-question-engineer";
 
 function dbNumber(value: unknown) {
   return Number(value ?? 0);
@@ -454,6 +462,23 @@ async function insertAssignment(opportunityId: string, input: ProjectInput) {
   });
 }
 
+async function assignWorkflow(
+  opportunityId: string,
+  role: Role,
+  assigneeName: string,
+  status: DbStatus,
+) {
+  const db = getDb();
+  const assignee = await findOrCreateUser(assigneeName, role);
+
+  await db.insert(workflowAssignments).values({
+    opportunityId,
+    role: roleToDb[role],
+    assigneeId: assignee.id,
+    status,
+  });
+}
+
 export async function createBcSubmission(input: BcSubmissionInput) {
   const validated = bcSubmissionInputSchema.parse(input);
   const db = getDb();
@@ -467,7 +492,7 @@ export async function createBcSubmission(input: BcSubmissionInput) {
     subsidyRequirement: validated.subsidy,
     capex: validated.capex,
   });
-  const financeRole: Role = decision.requiresCfo ? "CFO" : "BC Analyst / Finance";
+  const financeRole: Role = "BC Analyst / Finance";
   const financeAssignee = await findOrCreateUser(financeRole, financeRole);
   const [existing] = await db
     .select({ id: opportunities.id })
@@ -680,6 +705,151 @@ export async function updateProject(id: string, input: ProjectInput) {
   }
 
   return project;
+}
+
+export async function decideFinanceWorkflow(
+  id: string,
+  decision: FinanceDecision,
+  notes: string,
+) {
+  const db = getDb();
+  const [existing] = await db
+    .select()
+    .from(opportunities)
+    .where(eq(opportunities.reference, id))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error("Project not found.");
+  }
+
+  const businessCase = await getLatestBusinessCase(existing.id);
+  const assignment = await getLatestAssignment(existing.id);
+
+  if (!businessCase) {
+    throw new Error("Project has no business case to route.");
+  }
+
+  const route = getFinanceRoute(decision, businessCase);
+  const actorRole = assignment?.role ?? roleToDb["BC Analyst / Finance"];
+  const actor =
+    assignment?.assigneeId ??
+    (await findOrCreateUser("Finance Workflow", dbToRole[actorRole])).id;
+
+  if (assignment) {
+    await db
+      .update(workflowAssignments)
+      .set({ completedAt: new Date() })
+      .where(eq(workflowAssignments.id, assignment.id));
+  }
+
+  const [opportunity] = await db
+    .update(opportunities)
+    .set({
+      status: route.status,
+      updatedAt: new Date(),
+    })
+    .where(eq(opportunities.id, existing.id))
+    .returning();
+
+  if (decision === "approve") {
+    await db
+      .update(businessCases)
+      .set({
+        approvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(businessCases.id, businessCase.id));
+  }
+
+  await assignWorkflow(existing.id, route.role, route.assigneeName, route.status);
+
+  await db.insert(approvalHistory).values({
+    opportunityId: existing.id,
+    businessCaseId: businessCase.id,
+    actorId: actor,
+    role: actorRole,
+    action: route.action,
+    fromStatus: existing.status,
+    toStatus: route.status,
+    decision: businessCase.decisionOutput,
+    notes: notes || route.notes,
+  });
+
+  await db.insert(auditLogs).values({
+    opportunityId: existing.id,
+    actorId: actor,
+    event: route.event,
+    entityType: "BusinessCase",
+    entityId: businessCase.id,
+    metadata: {
+      outcome: decision,
+      assignedRole: route.role,
+      notes: notes || route.notes,
+    },
+  });
+
+  const project = await toProjectRecord(opportunity);
+
+  if (!project) {
+    throw new Error("Finance decision was saved but the project could not be read.");
+  }
+
+  return project;
+}
+
+function getFinanceRoute(
+  decision: FinanceDecision,
+  businessCase: typeof businessCases.$inferSelect,
+): {
+  status: DbStatus;
+  role: Role;
+  assigneeName: string;
+  action: "APPROVE" | "ESCALATE" | "REQUEST_REVISION";
+  event: string;
+  notes: string;
+} {
+  if (decision === "approve") {
+    return {
+      status: statusToDb["Sales Operations Validation"],
+      role: "Sales Operations",
+      assigneeName: "Sales Operations",
+      action: "APPROVE",
+      event: "FINANCE_APPROVED_TO_SALES_OPERATIONS",
+      notes: "Finance approved the business case for Sales Operations validation.",
+    };
+  }
+
+  if (decision === "reject-escalate-cfo") {
+    return {
+      status: statusToDb["Finance / CFO Approval"],
+      role: "CFO",
+      assigneeName: "CFO",
+      action: "ESCALATE",
+      event: "FINANCE_REJECTED_ESCALATED_TO_CFO",
+      notes: "Finance rejected the business case and escalated it to CFO review.",
+    };
+  }
+
+  if (decision === "reject-question-architect") {
+    return {
+      status: statusToDb["Business Case Prepared"],
+      role: "Solutions Architect",
+      assigneeName: businessCase.solutionArchitectureName,
+      action: "REQUEST_REVISION",
+      event: "FINANCE_REJECTED_QUESTION_TO_SOLUTION_ARCHITECT",
+      notes: "Finance rejected the business case and requested design clarification.",
+    };
+  }
+
+  return {
+    status: statusToDb["Business Case Prepared"],
+    role: "Solutions Engineer",
+    assigneeName: businessCase.solutionEngineerName,
+    action: "REQUEST_REVISION",
+    event: "FINANCE_REJECTED_QUESTION_TO_SOLUTION_ENGINEER",
+    notes: "Finance rejected the business case and requested technical costing clarification.",
+  };
 }
 
 export async function deleteProject(id: string) {
