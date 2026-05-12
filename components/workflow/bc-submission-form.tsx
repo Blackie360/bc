@@ -1,15 +1,22 @@
 "use client";
 
 import { Plus, Save, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
 type LinkRow = {
   id: number;
+};
+
+type LinkEvidenceTriggerFields = {
+  material?: string;
+  labor?: string;
+  wayleave?: string;
 };
 
 function Field({
@@ -27,6 +34,47 @@ function Field({
   );
 }
 
+function FieldHint({ children }: { children: ReactNode }) {
+  return <p className="text-xs font-normal text-[color:var(--color-muted)]">{children}</p>;
+}
+
+function FileUploadField({
+  id,
+  name,
+  required,
+}: {
+  id: string;
+  name: string;
+  required?: boolean;
+}) {
+  const [fileName, setFileName] = useState("No file selected");
+
+  function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextName = event.currentTarget.files?.[0]?.name;
+    setFileName(nextName && nextName.length > 0 ? nextName : "No file selected");
+  }
+
+  return (
+    <div className="flex h-10 items-center gap-3 rounded-md border border-[color:var(--color-border)] bg-white px-2">
+      <label
+        htmlFor={id}
+        className="cursor-pointer rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 py-1 text-xs font-medium text-[color:var(--color-muted-strong)]"
+      >
+        Choose File
+      </label>
+      <span className="truncate text-xs text-[color:var(--color-muted-strong)]">{fileName}</span>
+      <input
+        id={id}
+        name={name}
+        type="file"
+        required={required}
+        onChange={handleChange}
+        className="sr-only"
+      />
+    </div>
+  );
+}
+
 const moneyFields = [
   ["material", "Material"],
   ["labor", "Labor"],
@@ -39,10 +87,16 @@ const moneyFields = [
 
 export function BcSubmissionForm({
   action,
+  accountManagerDisplayName,
 }: {
   action: (formData: FormData) => void | Promise<void>;
+  /** From the server (env / future auth). Not editable on this form. */
+  accountManagerDisplayName: string;
 }) {
   const [rows, setRows] = useState<LinkRow[]>([{ id: 1 }]);
+  const [linkEvidenceTriggers, setLinkEvidenceTriggers] = useState<
+    Record<number, LinkEvidenceTriggerFields>
+  >({});
 
   function addRow() {
     setRows((current) => [...current, { id: Date.now() }]);
@@ -51,6 +105,38 @@ export function BcSubmissionForm({
   function removeRow(id: number) {
     setRows((current) =>
       current.length === 1 ? current : current.filter((row) => row.id !== id),
+    );
+    setLinkEvidenceTriggers((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function updateEvidenceTriggerField(
+    rowId: number,
+    field: keyof LinkEvidenceTriggerFields,
+    value: string,
+  ) {
+    setLinkEvidenceTriggers((current) => ({
+      ...current,
+      [rowId]: {
+        ...current[rowId],
+        [field]: value,
+      },
+    }));
+  }
+
+  function isFilled(value?: string) {
+    return Boolean(value && value.trim().length > 0);
+  }
+
+  function shouldAskForPboqQuote(rowId: number) {
+    const row = linkEvidenceTriggers[rowId];
+    return (
+      isFilled(row?.material) &&
+      isFilled(row?.labor) &&
+      isFilled(row?.wayleave)
     );
   }
 
@@ -74,7 +160,12 @@ export function BcSubmissionForm({
             <Input name="solutionEngineerName" autoComplete="off" required />
           </Field>
           <Field label="Account Manager">
-            <Input name="accountManagerName" autoComplete="name" required />
+            <div
+              className="flex h-10 w-full items-center rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-3 text-sm text-[color:var(--color-muted-strong)]"
+              title="Taken from current authenticated/session context"
+            >
+              {accountManagerDisplayName}
+            </div>
           </Field>
           <Field label="Region">
             <Input name="region" autoComplete="off" required />
@@ -95,15 +186,19 @@ export function BcSubmissionForm({
           </Field>
           <Field label="IRR">
             <Input name="irr" type="number" inputMode="decimal" step="0.1" required />
+            <FieldHint>Internal Rate of Return (projected annual ROI percentage).</FieldHint>
           </Field>
           <Field label="Payback Months">
             <Input name="payback" type="number" inputMode="numeric" required />
+            <FieldHint>Time needed to recover total investment (in months).</FieldHint>
           </Field>
           <Field label="Capex">
             <Input name="capex" type="number" inputMode="decimal" step="0.01" required />
+            <FieldHint>Total projected capital expenditure for delivery.</FieldHint>
           </Field>
           <Field label="Subsidy Requirement">
             <Input name="subsidy" type="number" inputMode="decimal" step="0.01" required />
+            <FieldHint>Funding gap that requires subsidy support.</FieldHint>
           </Field>
           <Field label="Approved Budget">
             <Input
@@ -113,6 +208,7 @@ export function BcSubmissionForm({
               step="0.01"
               required
             />
+            <FieldHint>Budget amount approved for implementation.</FieldHint>
           </Field>
         </CardContent>
       </Card>
@@ -160,28 +256,40 @@ export function BcSubmissionForm({
                           step="0.01"
                           min="0"
                           required
+                          onChange={
+                            name === "material" || name === "labor" || name === "wayleave"
+                              ? (event) =>
+                                  updateEvidenceTriggerField(row.id, name, event.currentTarget.value)
+                              : undefined
+                          }
                         />
                       </td>
                     ))}
                     <td className="px-2 py-2">
-                      <Input
-                        name={`linkEvidence-${index}`}
-                        type="file"
-                        className="h-auto py-2"
-                        required
-                      />
+                      {shouldAskForPboqQuote(row.id) ? (
+                        <FileUploadField
+                          id={`linkEvidence-${row.id}`}
+                          name={`linkEvidence-${index}`}
+                          required
+                        />
+                      ) : (
+                        <p className="text-xs text-[color:var(--color-muted)]">
+                          Fill Material, Labor, and Wayleave to add PBOQ / Quote.
+                        </p>
+                      )}
                     </td>
                     <td className="px-2 py-2">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="warning"
-                        onClick={() => removeRow(row.id)}
-                        disabled={rows.length === 1}
-                        aria-label="Remove link row"
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </Button>
+                      {rows.length > 1 ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="warning"
+                          onClick={() => removeRow(row.id)}
+                          aria-label="Remove link row"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -197,22 +305,32 @@ export function BcSubmissionForm({
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-3">
           <Field label="BC Template">
-            <Input name="bcTemplate" type="file" className="h-auto py-2" required />
+            <FileUploadField id="bcTemplate" name="bcTemplate" required />
           </Field>
           <Field label="PBOQ File">
-            <Input name="pboqFile" type="file" className="h-auto py-2" required />
+            <FileUploadField id="pboqFile" name="pboqFile" required />
           </Field>
           <Field label="Order Form">
-            <Input name="orderForm" type="file" className="h-auto py-2" required />
+            <FileUploadField id="orderForm" name="orderForm" required />
           </Field>
         </CardContent>
       </Card>
 
-      <div className="flex items-end">
-        <Button type="submit">
+      <div className="flex items-end gap-2">
+        <FormSubmitButton
+          variant="secondary"
+          pendingLabel="Saving draft…"
+          name="intent"
+          value="draft"
+          formNoValidate
+        >
           <Save className="h-4 w-4" aria-hidden="true" />
-          Submit to Finance
-        </Button>
+          Save as Draft
+        </FormSubmitButton>
+        <FormSubmitButton pendingLabel="Submitting…" name="intent" value="submit">
+          <Save className="h-4 w-4" aria-hidden="true" />
+          Submit BC to Finance
+        </FormSubmitButton>
       </div>
     </form>
   );

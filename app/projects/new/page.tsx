@@ -4,26 +4,35 @@ import { createBcSubmissionAction } from "@/app/projects/actions";
 import { Button } from "@/components/ui/button";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { BcSubmissionForm } from "@/components/workflow/bc-submission-form";
+import { getCurrentUserDisplayName } from "@/lib/current-user";
 import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
-export default function NewProjectPage() {
+export default async function NewProjectPage() {
+  const accountManagerDisplayName = await getCurrentUserDisplayName();
+  const accountManagerRoute = roleRoutes.find((route) => route.role === "Account Manager");
+  const accountManagerDashboardHref = accountManagerRoute?.href ?? "/roles/account-manager";
+  const accountManagerProjectsHref = `/projects?role=${accountManagerRoute?.slug ?? "account-manager"}`;
+
   return (
     <AdminShell
-      code="BC"
+      code="AM"
       title="Account Manager"
       subtitle="BC submission"
-      badgeLabel="AM"
+      badgeLabel="Account Manager"
       primaryActive="projects"
-      workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
+      workflowLinks={[]}
+      showWorkflowLinks={false}
+      dashboardHref={accountManagerDashboardHref}
+      projectsHref={accountManagerProjectsHref}
     >
       <ShellHeading
         title="Account Manager BC Submission"
-        subtitle="Capture opportunity details, link items, evidence, and submit to finance."
+        subtitle="Capture opportunity details, link items, evidence, and submit for Finance approval."
         action={
           <Button asChild variant="secondary" size="sm">
-            <Link href="/projects">
+            <Link href={accountManagerProjectsHref}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Projects
             </Link>
@@ -31,7 +40,10 @@ export default function NewProjectPage() {
         }
       />
       <div className="mx-auto max-w-7xl space-y-4 px-6 pb-8 pt-6">
-        <BcSubmissionForm action={createBcSubmissionAction} />
+        <BcSubmissionForm
+          action={createBcSubmissionAction}
+          accountManagerDisplayName={accountManagerDisplayName}
+        />
       </div>
     </AdminShell>
   );

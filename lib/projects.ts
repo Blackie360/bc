@@ -153,6 +153,32 @@ export const bcSubmissionInputSchema = z.object({
 });
 
 export type BcSubmissionInput = z.infer<typeof bcSubmissionInputSchema>;
+export type BcDraftInput = {
+  opportunityNumber: string;
+  customerName: string;
+  solutionArchitectureName: string;
+  solutionEngineerName: string;
+  accountManagerName: string;
+  region: string;
+  type: BusinessCaseType;
+  irr: number;
+  payback: number;
+  capex: number;
+  subsidy: number;
+  approvedBudget: number;
+  links: Array<{
+    linkName: string;
+    material: number;
+    labor: number;
+    wayleave: number;
+    mrr: number;
+    mrc: number;
+    nrc: number;
+    nrr: number;
+    evidenceAttachmentIndex: number;
+  }>;
+  attachments: BcSubmissionInput["attachments"];
+};
 
 export type ProjectLinkRecord = {
   id: string;
@@ -607,6 +633,137 @@ export async function createBcSubmission(input: BcSubmissionInput) {
 
   if (!project) {
     throw new Error("BC submission was created but could not be read.");
+  }
+
+  return project;
+}
+
+export async function createBcDraft(input: BcDraftInput) {
+  const db = getDb();
+  const accountManagerName = input.accountManagerName.trim() || "Current User";
+  const accountManager = await findOrCreateUser(accountManagerName, "Account Manager");
+  const draftReferenceBase = input.opportunityNumber.trim() || buildReference();
+  const [referenceConflict] = await db
+    .select({ id: opportunities.id })
+    .from(opportunities)
+    .where(eq(opportunities.reference, draftReferenceBase))
+    .limit(1);
+  const opportunityReference = referenceConflict
+    ? `${draftReferenceBase}-DRAFT-${randomUUID().slice(0, 4).toUpperCase()}`
+    : draftReferenceBase;
+  const customerName = input.customerName.trim() || "Draft Customer";
+  const normalizedInput = {
+    ...input,
+    customerName,
+    solutionArchitectureName: input.solutionArchitectureName.trim() || "Unassigned",
+    solutionEngineerName: input.solutionEngineerName.trim() || "Unassigned",
+    region: input.region.trim() || "Unassigned",
+    type: input.type || "Ordinary BC",
+    irr: Number.isFinite(input.irr) ? input.irr : 0,
+    payback: Number.isFinite(input.payback) ? input.payback : 0,
+    capex: Number.isFinite(input.capex) ? input.capex : 0,
+    subsidy: Number.isFinite(input.subsidy) ? input.subsidy : 0,
+    approvedBudget: Number.isFinite(input.approvedBudget) ? input.approvedBudget : 0,
+  };
+  const decision = deriveDecision({
+    irr: normalizedInput.irr,
+    paybackMonths: normalizedInput.payback,
+    subsidyRequirement: normalizedInput.subsidy,
+    capex: normalizedInput.capex,
+  });
+  const [opportunity] = await db
+    .insert(opportunities)
+    .values({
+      reference: opportunityReference,
+      customerName: normalizedInput.customerName,
+      opportunityName: `${normalizedInput.customerName} draft`,
+      region: normalizedInput.region,
+      segment: "Enterprise",
+      accountManagerId: accountManager.id,
+      status: "OPPORTUNITY_CREATED",
+      priority: "Normal",
+    })
+    .returning();
+
+  const [businessCase] = await db
+    .insert(businessCases)
+    .values({
+      opportunityId: opportunity.id,
+      version: 1,
+      type: typeToDb[normalizedInput.type],
+      solutionArchitectureName: normalizedInput.solutionArchitectureName,
+      solutionEngineerName: normalizedInput.solutionEngineerName,
+      irr: toNumeric(normalizedInput.irr),
+      paybackMonths: normalizedInput.payback,
+      capex: toNumeric(normalizedInput.capex),
+      subsidyRequirement: toNumeric(normalizedInput.subsidy),
+      approvedBudget: toNumeric(normalizedInput.approvedBudget),
+      decisionOutput: decisionToDb[decision.decision],
+      requiresCfo: decision.requiresCfo,
+      subsidyDisclosed: normalizedInput.subsidy > 0,
+      submittedAt: null,
+    })
+    .returning();
+
+  const createdDocuments = await Promise.all(
+    normalizedInput.attachments.map((attachment) =>
+      db
+        .insert(documents)
+        .values({
+          opportunityId: opportunity.id,
+          uploadedById: accountManager.id,
+          type: attachment.type,
+          name: attachment.name,
+          storageKey: attachment.storageKey,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+        })
+        .returning(),
+    ),
+  );
+  const documentIds = createdDocuments.map(([document]) => document.id);
+
+  if (normalizedInput.links.length > 0) {
+    await db.insert(businessCaseLinks).values(
+      normalizedInput.links.map((link) => ({
+        businessCaseId: businessCase.id,
+        linkName: link.linkName,
+        material: toNumeric(link.material),
+        labor: toNumeric(link.labor),
+        wayleave: toNumeric(link.wayleave),
+        mrr: toNumeric(link.mrr),
+        mrc: toNumeric(link.mrc),
+        nrc: toNumeric(link.nrc),
+        nrr: toNumeric(link.nrr),
+        evidenceDocumentId: documentIds[link.evidenceAttachmentIndex] ?? null,
+      })),
+    );
+  }
+
+  await db.insert(workflowAssignments).values({
+    opportunityId: opportunity.id,
+    role: roleToDb["Account Manager"],
+    assigneeId: accountManager.id,
+    status: "OPPORTUNITY_CREATED",
+  });
+
+  await db.insert(auditLogs).values({
+    opportunityId: opportunity.id,
+    actorId: accountManager.id,
+    event: "BC_DRAFT_SAVED",
+    entityType: "BusinessCase",
+    entityId: businessCase.id,
+    metadata: {
+      nextRole: "Account Manager",
+      linkCount: normalizedInput.links.length,
+      attachmentCount: normalizedInput.attachments.length,
+    },
+  });
+
+  const project = await toProjectRecord(opportunity);
+
+  if (!project) {
+    throw new Error("Draft was created but could not be read.");
   }
 
   return project;
