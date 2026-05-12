@@ -4,6 +4,7 @@ import {
   Plus,
 } from "lucide-react";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -54,19 +55,28 @@ function isOngoingProject(project: ProjectRecord) {
   return project.state !== CLOSED_STATE;
 }
 
+function nextRoutingAction(project: ProjectRecord) {
+  const hasPboqAttachment = project.documents.some(
+    (document) =>
+      document.type === "PBOQ" || document.type === "ACTUAL_SURVEY_QUOTE",
+  );
+
+  return hasPboqAttachment ? "Send to Finance" : "Request PBOQ";
+}
+
 function RouteStatus({ transition }: { transition?: Transition }) {
   if (!transition) {
     return (
-      <span className="inline-flex rounded-full bg-[#fff4cf] px-2.5 py-1 text-xs font-semibold text-[#a25a00]">
+      <Badge className="rounded-full border-transparent bg-[#fff4cf] px-2.5 py-1 text-xs font-semibold text-[#a25a00]">
         Pending Route
-      </span>
+      </Badge>
     );
   }
 
   return (
-    <span className="inline-flex rounded-full bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
+    <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
       {transition.to}
-    </span>
+    </Badge>
   );
 }
 
@@ -166,16 +176,25 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                       <td className="max-w-[220px] px-4 py-4 text-[color:var(--color-muted-strong)]">
                         {item.state}
                       </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
-                        {item.roleQueue}
+                      <td className="px-4 py-4">
+                        {item.roleQueue ? (
+                          <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
+                            {item.roleQueue}
+                          </Badge>
+                        ) : null}
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
                         {item.updatedAt}
                       </td>
                       <td className="px-4 py-4">
-                        <Button asChild size="sm">
-                          <Link href={`/projects/${item.id}`}>View</Link>
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button asChild size="sm">
+                            <Link href={`/projects/${item.id}`}>View</Link>
+                          </Button>
+                          <Button size="sm" variant="secondary">
+                            {nextRoutingAction(item)}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -215,14 +234,10 @@ export function RoleRoutePage({
       subtitle={roleDescriptions[role]}
       badgeLabel={role}
       primaryActive="dashboard"
-      workflowTitle="My Stages"
-      workflowLinks={[
-        {
-          href: route.href,
-          label: "Assigned Queue",
-          active: true,
-        },
-      ]}
+      workflowLinks={[]}
+      showWorkflowLinks={false}
+      dashboardHref={route.href}
+      projectsHref={`/projects?role=${route.slug}`}
     >
       <ShellHeading
         title={`${role} - Assigned Projects`}
@@ -353,9 +368,6 @@ export function RoleRoutePage({
                           <Button asChild size="sm">
                             <Link href={`/projects/${item.id}`}>View</Link>
                           </Button>
-                          <Button asChild size="sm" variant="secondary">
-                            <Link href={`/projects/${item.id}/edit`}>Edit</Link>
-                          </Button>
                           <Button size="sm" variant="secondary">
                             Route
                           </Button>
@@ -373,45 +385,6 @@ export function RoleRoutePage({
                 </tbody>
               </table>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle className="text-sm">Workflow Route</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            {route.transitions.length > 0 ? (
-              <div className="grid gap-3 md:grid-cols-3">
-                {route.transitions.map((transition) => (
-                  <div
-                    key={`${transition.from}-${transition.to}`}
-                    className="grid gap-3 rounded-lg border border-[color:var(--color-border)] bg-white px-4 py-3"
-                  >
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-[color:var(--color-muted)]">
-                        From
-                      </p>
-                      <p className="mt-1 font-bold">{transition.from}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-[color:var(--color-muted)]">To</p>
-                      <p className="mt-1 font-bold">{transition.to}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-[color:var(--color-muted)]">
-                        Route Rule
-                      </p>
-                      <p className="mt-1 text-xs text-[color:var(--color-muted)]">{transition.rule}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] p-4 text-sm text-[color:var(--color-warning-text)]">
-                No workflow transition is assigned to this role yet.
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>
