@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Save } from "lucide-react";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -26,11 +27,19 @@ function Field({
 
 export function ProjectForm({
   action,
+  badgeLabel = "Admin",
+  dashboardHref = "/roles",
   project,
+  projectsHref = "/projects",
+  showWorkflowLinks = true,
   title,
 }: {
   action: (formData: FormData) => void | Promise<void>;
+  badgeLabel?: string;
+  dashboardHref?: string;
   project?: ProjectRecord;
+  projectsHref?: string;
+  showWorkflowLinks?: boolean;
   title: string;
 }) {
   return (
@@ -38,16 +47,19 @@ export function ProjectForm({
       code="PRJ"
       title="Project Management"
       subtitle="Create and maintain workflow records"
-      badgeLabel="Admin"
+      badgeLabel={badgeLabel}
       primaryActive="projects"
       workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
+      showWorkflowLinks={showWorkflowLinks}
+      dashboardHref={dashboardHref}
+      projectsHref={projectsHref}
     >
       <ShellHeading
         title={title}
         subtitle="Capture core project, queue, and financial data."
         action={
           <Button asChild variant="secondary" size="sm">
-            <Link href="/projects">
+            <Link href={projectsHref}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Projects
             </Link>
@@ -207,10 +219,10 @@ export function ProjectForm({
                 </Field>
               </section>
               <div className="flex items-end">
-                <Button type="submit">
+                <FormSubmitButton pendingLabel="Saving project…">
                   <Save className="h-4 w-4" aria-hidden="true" />
                   Save Project
-                </Button>
+                </FormSubmitButton>
               </div>
             </form>
           </CardContent>

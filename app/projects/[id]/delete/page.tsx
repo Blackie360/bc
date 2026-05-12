@@ -22,6 +22,10 @@ export default async function DeleteProjectPage({
     notFound();
   }
 
+  const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
+  const dashboardHref = roleRoute?.href ?? "/roles";
+  const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
+
   return (
     <AdminShell
       code="PRJ"
@@ -29,14 +33,17 @@ export default async function DeleteProjectPage({
       subtitle={project.id}
       badgeLabel={project.roleQueue}
       primaryActive="projects"
-      workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
+      workflowLinks={[]}
+      showWorkflowLinks={false}
+      dashboardHref={dashboardHref}
+      projectsHref={projectsHref}
     >
       <ShellHeading
         title="Delete Project"
         subtitle="This action permanently removes all linked workflow records."
         action={
           <Button asChild variant="secondary" size="sm">
-            <Link href="/projects">
+            <Link href={projectsHref}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Projects
             </Link>

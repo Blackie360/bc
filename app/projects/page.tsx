@@ -5,21 +5,36 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listProjects } from "@/lib/projects";
-import { roleRoutes } from "@/lib/workflow";
+import { getRoleRoute, roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ draft?: string; role?: string; saved?: string; submitted?: string }>;
+}) {
+  const query = await searchParams;
+  const roleRoute = query.role ? getRoleRoute(query.role) : undefined;
   const projects = await listProjects();
+  const ongoingProjects = projects
+    .filter((project) => project.state !== 'Project Closure & Reporting')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const delayedCount = projects.filter((project) => project.variance > 10).length;
+  const badgeLabel = roleRoute?.role ?? "Admin";
+  const dashboardHref = roleRoute ? roleRoute.href : "/roles";
+  const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
 
   return (
     <AdminShell
       code="PRJ"
       title="Project Register"
-      badgeLabel="Admin"
+      badgeLabel={badgeLabel}
       primaryActive="projects"
       workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
+      showWorkflowLinks={false}
+      dashboardHref={dashboardHref}
+      projectsHref={projectsHref}
     >
       <ShellHeading
         title="Projects"
@@ -34,6 +49,21 @@ export default async function ProjectsPage() {
         }
       />
       <div className="space-y-4 px-6 pb-8 pt-6">
+        {query.submitted === "bc" ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            BC submitted to Finance for approval. The saved project is listed below.
+          </div>
+        ) : null}
+        {query.draft === "saved" ? (
+          <div className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-4 py-3 text-sm text-[color:var(--color-muted-strong)]">
+            Draft saved. The project draft is listed below.
+          </div>
+        ) : null}
+        {query.saved === "project" ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Project saved. The latest version is listed below.
+          </div>
+        ) : null}
         <section className="grid gap-3 md:grid-cols-4">
           <Card>
             <CardContent className="p-4">
@@ -106,7 +136,13 @@ export default async function ProjectsPage() {
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.createdAt}</td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.state}</td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.roleQueue}</td>
+                      <td className="px-4 py-4">
+                        {project.roleQueue ? (
+                          <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
+                            {project.roleQueue}
+                          </Badge>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-4">
                         <Badge variant="info">{project.decision}</Badge>
                       </td>
@@ -142,6 +178,61 @@ export default async function ProjectsPage() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
+            <CardTitle className="text-sm">Ongoing Pipeline (Read Only)</CardTitle>
+            <span className="text-xs text-[color:var(--color-muted)]">{ongoingProjects.length}</span>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto p-4">
+              <table className="w-full min-w-[980px] overflow-hidden rounded-lg border border-[color:var(--color-border)] text-left text-sm">
+                <thead className="bg-[color:var(--color-surface-soft)] text-[11px] uppercase text-[color:var(--color-muted)]">
+                  <tr>
+                    <th className="px-4 py-3 font-bold">Project</th>
+                    <th className="px-4 py-3 font-bold">Stage</th>
+                    <th className="px-4 py-3 font-bold">Role Queue</th>
+                    <th className="px-4 py-3 font-bold">Updated</th>
+                    <th className="px-4 py-3 font-bold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[color:var(--color-border)]">
+                  {ongoingProjects.map((project) => (
+                    <tr key={project.id} className="hover:bg-[color:var(--color-surface-soft)]">
+                      <td className="px-4 py-4">
+                        <p className="font-medium">{project.customer}</p>
+                        <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
+                      </td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.state}</td>
+                      <td className="px-4 py-4">
+                        {project.roleQueue ? (
+                          <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
+                            {project.roleQueue}
+                          </Badge>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.updatedAt}</td>
+                      <td className="px-4 py-4">
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href={`/projects/${project.id}`}>
+                            <Eye className="h-4 w-4" aria-hidden="true" />
+                            View
+                          </Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {ongoingProjects.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={5}>
+                        No ongoing projects currently in the pipeline.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>

@@ -54,10 +54,13 @@ function FinanceDecisionForm({
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ submitted?: string; draft?: string }>;
 }) {
   const { id } = await params;
+  const query = await searchParams;
   const project = await getProject(id);
 
   if (!project) {
@@ -66,6 +69,9 @@ export default async function ProjectDetailPage({
 
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
+  const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
+  const dashboardHref = roleRoute?.href ?? "/roles";
+  const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
 
   return (
     <AdminShell
@@ -74,7 +80,10 @@ export default async function ProjectDetailPage({
       subtitle={project.id}
       badgeLabel={project.roleQueue}
       primaryActive="projects"
-      workflowLinks={roleRoutes.map((route) => ({ href: route.href, label: route.role }))}
+      workflowLinks={[]}
+      showWorkflowLinks={false}
+      dashboardHref={dashboardHref}
+      projectsHref={projectsHref}
     >
       <ShellHeading
         title={project.customer}
@@ -82,7 +91,7 @@ export default async function ProjectDetailPage({
         action={
           <div className="flex items-center gap-2">
             <Button asChild variant="secondary" size="sm">
-              <Link href="/projects">
+              <Link href={projectsHref}>
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 Projects
               </Link>
@@ -97,6 +106,16 @@ export default async function ProjectDetailPage({
         }
       />
       <div className="mx-auto max-w-6xl space-y-4 px-6 pb-8 pt-6">
+        {query.submitted === "bc" ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            BC submitted to Finance for approval.
+          </div>
+        ) : null}
+        {query.draft === "saved" ? (
+          <div className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-4 py-3 text-sm text-[color:var(--color-muted-strong)]">
+            Draft saved. You can continue editing before final submission.
+          </div>
+        ) : null}
         <section className="grid gap-3 md:grid-cols-4">
           <Card>
             <CardContent className="p-4">
