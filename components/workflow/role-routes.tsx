@@ -1,11 +1,12 @@
 import Link from "next/link";
 import {
-  Search,
   Plus,
 } from "lucide-react";
+import { advanceProjectToNextStageAction } from "@/app/projects/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import {
   Card,
   CardContent,
@@ -55,6 +56,22 @@ function isOngoingProject(project: ProjectRecord) {
   return project.state !== CLOSED_STATE;
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function nextRoutingAction(project: ProjectRecord) {
   const hasPboqAttachment = project.documents.some(
     (document) =>
@@ -62,6 +79,14 @@ function nextRoutingAction(project: ProjectRecord) {
   );
 
   return hasPboqAttachment ? "Send to Finance" : "Request PBOQ";
+}
+
+function nextTransitionForProject(project: ProjectRecord) {
+  return (
+    workflowTransitions.find(
+      (transition) => transition.from === project.state && transition.owner === project.roleQueue,
+    ) ?? workflowTransitions.find((transition) => transition.from === project.state)
+  );
 }
 
 function RouteStatus({ transition }: { transition?: Transition }) {
@@ -184,7 +209,7 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                         ) : null}
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
-                        {item.updatedAt}
+                        {formatDateTime(item.updatedAt)}
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-2">
@@ -224,6 +249,15 @@ export function RoleRoutePage({
 }) {
   const route = roleRoutes.find((item) => item.role === role);
   const queuedCases = projects.filter((item) => item.roleQueue === role);
+  const activeRoute = route?.transitions[0];
+  const readyCount = queuedCases.filter((item) => item.revisions <= 1).length;
+  const averageIrr =
+    queuedCases.length === 0
+      ? 0
+      : Math.round(
+          queuedCases.reduce((total, item) => total + item.irr, 0) /
+            queuedCases.length,
+        );
 
   if (!route) return null;
 
@@ -252,75 +286,77 @@ export function RoleRoutePage({
         }
       />
       <div className="space-y-5 px-6 pb-8 pt-6">
-        <section className="grid gap-3 md:grid-cols-4">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-semibold uppercase text-[color:var(--color-muted)]">
+        <section
+          className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(150px,1fr))]"
+          aria-label="Role queue summary"
+        >
+          <Card className="overflow-hidden border-[color:var(--color-primary)] bg-[color:var(--color-primary)] text-white">
+            <CardContent className="flex h-full flex-col justify-between gap-5 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">
+                    Active Route
+                  </p>
+                  <p className="mt-2 text-xl font-semibold leading-tight">
+                    {activeRoute?.to ?? "No route configured"}
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/80">
+                  {roleCodes[role]}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-white/70">
+                <span className="h-px flex-1 bg-white/20" aria-hidden="true" />
+                <span>{activeRoute ? "Next handoff stage" : "Configuration needed"}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-white/95">
+            <CardContent className="p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                 Queue Size
               </p>
-              <p className="mt-1 text-2xl font-bold text-[color:var(--color-primary)]">
-                {queuedCases.length}
-              </p>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <p className="text-3xl font-semibold tracking-tight text-[color:var(--color-primary)]">
+                  {queuedCases.length}
+                </p>
+                <span className="rounded-full bg-[color:var(--color-surface-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--color-muted-strong)]">
+                  Assigned
+                </span>
+              </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-semibold uppercase text-[color:var(--color-muted)]">
-                Active Route
-              </p>
-              <p className="mt-1 text-sm font-bold text-[color:var(--color-primary)]">
-                {route.transitions[0]?.to ?? "No route"}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-semibold uppercase text-[color:var(--color-muted)]">
+          <Card className="bg-white/95">
+            <CardContent className="p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                 Avg IRR
               </p>
-              <p className="mt-1 text-2xl font-bold text-[color:var(--color-primary)]">
-                {queuedCases.length === 0
-                  ? "0%"
-                  : `${Math.round(
-                      queuedCases.reduce((total, item) => total + item.irr, 0) /
-                        queuedCases.length,
-                    )}%`}
-              </p>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <p className="text-3xl font-semibold tracking-tight text-[color:var(--color-primary)]">
+                  {averageIrr}%
+                </p>
+                <span className="rounded-full bg-[color:var(--color-surface-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--color-muted-strong)]">
+                  Portfolio
+                </span>
+              </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-semibold uppercase text-[color:var(--color-muted)]">
+          <Card className="bg-white/95">
+            <CardContent className="p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                 Ready To Route
               </p>
-              <p className="mt-1 text-2xl font-bold text-[color:var(--color-primary)]">
-                {queuedCases.filter((item) => item.revisions <= 1).length}
-              </p>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <p className="text-3xl font-semibold tracking-tight text-[color:var(--color-primary)]">
+                  {readyCount}
+                </p>
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                  Clear
+                </span>
+              </div>
             </CardContent>
           </Card>
         </section>
-        <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle className="text-sm">Search Projects</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 p-4 md:grid-cols-3">
-            <label className="relative md:col-span-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--color-muted)]" />
-              <input
-                readOnly
-                value=""
-                placeholder="Search by project name, ID, or area"
-                className="h-10 w-full rounded-md border border-[color:var(--color-border)] bg-white pl-10 pr-3 text-sm placeholder:text-[color:var(--color-muted)]"
-              />
-            </label>
-            <input
-              readOnly
-              value=""
-              placeholder="Role filter"
-              className="h-10 w-full rounded-md border border-[color:var(--color-border)] bg-white px-3 text-sm placeholder:text-[color:var(--color-muted)]"
-            />
-          </CardContent>
-        </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
             <CardTitle className="text-sm">Assigned Projects</CardTitle>
@@ -362,15 +398,27 @@ export function RoleRoutePage({
                           {route.transitions[0]?.rule ?? "No transition configured"}
                         </p>
                       </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{item.updatedAt}</td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
+                        {formatDateTime(item.updatedAt)}
+                      </td>
                       <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <Button asChild size="sm">
+                        <div className="flex flex-nowrap items-center gap-2">
+                          <Button asChild size="sm" className="min-w-14">
                             <Link href={`/projects/${item.id}`}>View</Link>
                           </Button>
-                          <Button size="sm" variant="secondary">
-                            Route
-                          </Button>
+                          <form
+                            action={advanceProjectToNextStageAction.bind(null, item.id)}
+                            className="inline-flex"
+                          >
+                            <FormSubmitButton
+                              size="sm"
+                              variant="secondary"
+                              pendingLabel="Sending…"
+                              className="min-w-44 whitespace-nowrap"
+                            >
+                              {nextTransitionForProject(item)?.to ?? "No next stage"}
+                            </FormSubmitButton>
+                          </form>
                         </div>
                       </td>
                     </tr>

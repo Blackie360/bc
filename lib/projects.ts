@@ -21,6 +21,7 @@ import {
 import {
   deriveDecision,
   roles,
+  workflowTransitions,
   workflowStates,
   type BusinessCaseType,
   type DecisionOutput,
@@ -953,6 +954,99 @@ export async function decideFinanceWorkflow(
   }
 
   return project;
+}
+
+export async function advanceProjectToNextStage(id: string) {
+  const db = getDb();
+  const [existing] = await db
+    .select()
+    .from(opportunities)
+    .where(eq(opportunities.reference, id))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error("Project not found.");
+  }
+
+  const project = await toProjectRecord(existing);
+
+  if (!project) {
+    throw new Error("Project has no business case to route.");
+  }
+
+  const transition =
+    workflowTransitions.find(
+      (item) => item.from === project.state && item.owner === project.roleQueue,
+    ) ?? workflowTransitions.find((item) => item.from === project.state);
+
+  if (!transition) {
+    throw new Error("Project is already at the final workflow stage.");
+  }
+
+  const assignment = await getLatestAssignment(existing.id);
+  const actorRole = assignment?.role ?? roleToDb[project.roleQueue];
+  const actor =
+    assignment?.assigneeId ??
+    (await findOrCreateUser(project.roleQueue, project.roleQueue)).id;
+  const nextTransition = workflowTransitions.find((item) => item.from === transition.to);
+  const nextRole = nextTransition?.owner ?? transition.owner;
+  const nextStatus = statusToDb[transition.to];
+
+  if (assignment) {
+    await db
+      .update(workflowAssignments)
+      .set({ completedAt: new Date() })
+      .where(eq(workflowAssignments.id, assignment.id));
+  }
+
+  const [opportunity] = await db
+    .update(opportunities)
+    .set({
+      status: nextStatus,
+      updatedAt: new Date(),
+    })
+    .where(eq(opportunities.id, existing.id))
+    .returning();
+
+  await assignWorkflow(existing.id, nextRole, assigneeNameForRole(nextRole, project), nextStatus);
+
+  await db.insert(auditLogs).values({
+    opportunityId: existing.id,
+    actorId: actor,
+    event: "PROJECT_SENT_TO_NEXT_STAGE",
+    entityType: "Opportunity",
+    entityId: existing.id,
+    metadata: {
+      fromState: project.state,
+      toState: transition.to,
+      fromRole: dbToRole[actorRole],
+      nextRole,
+    },
+  });
+
+  const routedProject = await toProjectRecord(opportunity);
+
+  if (!routedProject) {
+    throw new Error("Project was routed but could not be read.");
+  }
+
+  return routedProject;
+}
+
+function assigneeNameForRole(role: Role, project: ProjectRecord) {
+  if (role === "Account Manager") {
+    return project.owner;
+  }
+
+  if (role === "Solutions Architect") {
+    return project.solutionArchitectureName;
+  }
+
+  if (role === "Solutions Engineer") {
+    return project.solutionEngineerName;
+  }
+
+  return role;
 }
 
 function getFinanceRoute(

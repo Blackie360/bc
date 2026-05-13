@@ -8,6 +8,7 @@ import {
   createBcDraft,
   createBcSubmission,
   createProject,
+  advanceProjectToNextStage,
   decideFinanceWorkflow,
   deleteProject,
   getProject,
@@ -79,6 +80,13 @@ export async function decideFinanceWorkflowAction(id: string, formData: FormData
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
   redirect(`/projects/${project.id}`);
+}
+
+export async function advanceProjectToNextStageAction(id: string) {
+  const project = await advanceProjectToNextStage(id);
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
 }
 
 export async function deleteProjectAction(formData: FormData) {
