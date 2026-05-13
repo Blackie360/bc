@@ -43,7 +43,7 @@ export default async function ProjectsPage({
           <Button asChild>
             <Link href="/projects/new">
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New PBOQ
+              New Project
             </Link>
           </Button>
         }

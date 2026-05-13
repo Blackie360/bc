@@ -175,7 +175,7 @@ type BcDraftFormFields = Omit<BcDraftInput, "accountManagerName">;
 type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName">;
 
 function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
-  const surveyAvailable = textField(formData, "surveyAvailable") === "yes";
+  const pboqMode = textField(formData, "pboqMode");
 
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
@@ -186,12 +186,17 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
     mrr: Number(textField(formData, "mrr")),
     nrr: Number(textField(formData, "nrr")),
     contractTermMonths: Number(textField(formData, "contractTermMonths")),
-    routeDistanceKm: Number(textField(formData, "routeDistanceKm")),
-    siteCount: Number(textField(formData, "siteCount")),
-    surveyAvailable,
-    actualSurveyCost: numberField(formData, "actualSurveyCost"),
+    pboqMode: pboqMode === "existing" ? "existing" : "request",
+    routeDistanceKm: 0,
+    siteCount: 0,
+    surveyAvailable: false,
+    actualSurveyCost: 0,
     notes: textField(formData, "notes"),
-    solutionDesign: fileAttachment(formData, "solutionDesign", "SOLUTION_DESIGN"),
+    pboqAttachment: optionalFileAttachment(
+      formData,
+      "pboqAttachment",
+      "PBOQ",
+    ),
   };
 }
 
@@ -457,10 +462,10 @@ function fileAttachment<TType extends AttachmentType>(
   };
 }
 
-function optionalFileAttachment(
+function optionalFileAttachment<TType extends AttachmentType>(
   formData: FormData,
   name: string,
-  type: BcSubmissionInput["attachments"][number]["type"],
+  type: TType,
 ) {
   const value = formData.get(name);
 

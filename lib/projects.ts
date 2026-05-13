@@ -168,24 +168,34 @@ export const pboqRequestInputSchema = z
     mrr: z.coerce.number().nonnegative(),
     nrr: z.coerce.number().nonnegative(),
     contractTermMonths: z.coerce.number().int().positive(),
-    routeDistanceKm: z.coerce.number().positive(),
-    siteCount: z.coerce.number().int().positive(),
-    surveyAvailable: z.boolean(),
-    actualSurveyCost: z.coerce.number().nonnegative(),
+    pboqMode: z.enum(["existing", "request"]).default("request"),
+    routeDistanceKm: z.coerce.number().nonnegative().default(0),
+    siteCount: z.coerce.number().int().nonnegative().default(0),
+    surveyAvailable: z.boolean().default(false),
+    actualSurveyCost: z.coerce.number().nonnegative().default(0),
     notes: z.string().optional(),
-    solutionDesign: z.object({
-      type: z.literal("SOLUTION_DESIGN"),
-      name: z.string().min(1),
-      mimeType: z.string().min(1),
-      sizeBytes: z.number().int().positive(),
-      storageKey: z.string().min(1),
-    }),
+    pboqAttachment: z
+      .object({
+        type: z.literal("PBOQ"),
+        name: z.string().min(1),
+        mimeType: z.string().min(1),
+        sizeBytes: z.number().int().positive(),
+        storageKey: z.string().min(1),
+      })
+      .optional(),
   })
   .refine(
     (input) => !input.surveyAvailable || input.actualSurveyCost > 0,
     {
       message: "Actual survey cost is required when the survey is already conducted.",
       path: ["actualSurveyCost"],
+    },
+  )
+  .refine(
+    (input) => input.pboqMode !== "existing" || Boolean(input.pboqAttachment),
+    {
+      message: "Existing PBOQ attachment is required.",
+      path: ["pboqAttachment"],
     },
   );
 
@@ -811,24 +821,26 @@ export async function createPboqRequest(input: PboqRequestInput) {
     })
     .returning();
 
-  const [solutionDesign] = await db
-    .insert(documents)
-    .values({
-      opportunityId: opportunity.id,
-      uploadedById: accountManager.id,
-      type: "SOLUTION_DESIGN",
-      name: validated.solutionDesign.name,
-      storageKey: validated.solutionDesign.storageKey,
-      mimeType: validated.solutionDesign.mimeType,
-      sizeBytes: validated.solutionDesign.sizeBytes,
-    })
-    .returning();
+  const [pboqAttachment] = validated.pboqAttachment
+    ? await db
+        .insert(documents)
+        .values({
+          opportunityId: opportunity.id,
+          uploadedById: accountManager.id,
+          type: "PBOQ",
+          name: validated.pboqAttachment.name,
+          storageKey: validated.pboqAttachment.storageKey,
+          mimeType: validated.pboqAttachment.mimeType,
+          sizeBytes: validated.pboqAttachment.sizeBytes,
+        })
+        .returning()
+    : [];
 
   const [pboqRequest] = await db
     .insert(pboqRequests)
     .values({
       opportunityId: opportunity.id,
-      solutionDesignDocumentId: solutionDesign.id,
+      solutionDesignDocumentId: null,
       siteCount: validated.siteCount,
       routeDistanceKm: toNumeric(validated.routeDistanceKm),
       surveyBudget: toNumeric(validated.surveyAvailable ? validated.actualSurveyCost : 0),
@@ -853,7 +865,7 @@ export async function createPboqRequest(input: PboqRequestInput) {
     action: "SUBMIT",
     fromStatus: "OPPORTUNITY_CREATED",
     toStatus: statusToDb["PBOQ Request Submitted"],
-    notes: "Account Manager submitted PBOQ request with Solution Design attachment.",
+    notes: "Account Manager submitted PBOQ request attachment.",
   });
 
   await db.insert(auditLogs).values({
@@ -864,6 +876,8 @@ export async function createPboqRequest(input: PboqRequestInput) {
     entityId: pboqRequest.id,
     metadata: {
       nextRole: "Fiber Planning Team",
+      pboqMode: validated.pboqMode,
+      pboqAttachmentId: pboqAttachment?.id,
       surveyAvailable: validated.surveyAvailable,
       costSource: validated.surveyAvailable ? "ACTUAL_SURVEY" : "PBOQ_ESTIMATE",
     },

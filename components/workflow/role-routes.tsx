@@ -301,7 +301,7 @@ export function RoleRoutePage({
           <Button asChild size="sm">
             <Link href="/projects/new">
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New PBOQ
+              New Project
             </Link>
           </Button>
         }

@@ -66,7 +66,8 @@ export function PboqRequestForm({
   action: (formData: FormData) => void | Promise<void>;
   accountManagerDisplayName: string;
 }) {
-  const [surveyAvailable, setSurveyAvailable] = useState(false);
+  const [pboqMode, setPboqMode] = useState<"existing" | "request">("request");
+  const hasExistingPboq = pboqMode === "existing";
 
   return (
     <form action={action} className="space-y-4">
@@ -109,51 +110,62 @@ export function PboqRequestForm({
 
       <Card>
         <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">PBOQ Request</CardTitle>
+          <CardTitle className="text-sm">PBOQ Availability</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-2">
-          <Field label="Route Distance Km">
-            <Input name="routeDistanceKm" type="number" inputMode="decimal" min="0.01" step="0.01" required />
-          </Field>
-          <Field label="Site Count">
-            <Input name="siteCount" type="number" inputMode="numeric" min="1" required />
-          </Field>
-          <Field label="Survey Available">
-            <Select
-              name="surveyAvailable"
-              defaultValue="no"
-              onChange={(event) => setSurveyAvailable(event.currentTarget.value === "yes")}
-            >
-              <option value="no">No survey yet</option>
-              <option value="yes">Survey already conducted</option>
-            </Select>
-          </Field>
-          {surveyAvailable ? (
-            <Field label="Actual Survey Cost">
-              <Input name="actualSurveyCost" type="number" inputMode="decimal" min="0.01" step="0.01" required />
-            </Field>
-          ) : (
-            <div className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] p-3 text-sm text-[color:var(--color-muted-strong)]">
-              <input type="hidden" name="actualSurveyCost" value="0" />
-              <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-                Cost source
-              </p>
-              <p className="mt-2 font-medium">PBOQ estimate from Fiber Planning</p>
+          <input type="hidden" name="pboqMode" value={pboqMode} />
+          <div className="grid gap-2 md:col-span-2">
+            <p className="text-sm font-medium text-[color:var(--color-muted-strong)]">
+              Is there an existing PBOQ?
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                aria-pressed={hasExistingPboq}
+                onClick={() => setPboqMode("existing")}
+                className={
+                  hasExistingPboq
+                    ? "rounded-md border border-[color:var(--color-primary)] bg-[color:var(--color-primary)] px-3 py-3 text-left text-sm font-semibold text-white"
+                    : "rounded-md border border-[color:var(--color-border)] bg-white px-3 py-3 text-left text-sm font-semibold text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)]"
+                }
+              >
+                Existing PBOQ
+                <span className={hasExistingPboq ? "mt-1 block text-xs font-normal text-white/70" : "mt-1 block text-xs font-normal text-[color:var(--color-muted)]"}>
+                  Attach the PBOQ file to the project.
+                </span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={!hasExistingPboq}
+                onClick={() => setPboqMode("request")}
+                className={
+                  !hasExistingPboq
+                    ? "rounded-md border border-[color:var(--color-primary)] bg-[color:var(--color-primary)] px-3 py-3 text-left text-sm font-semibold text-white"
+                    : "rounded-md border border-[color:var(--color-border)] bg-white px-3 py-3 text-left text-sm font-semibold text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)]"
+                }
+              >
+                Request Fiber Planning
+                <span className={!hasExistingPboq ? "mt-1 block text-xs font-normal text-white/70" : "mt-1 block text-xs font-normal text-[color:var(--color-muted)]"}>
+                  Send the project to Fiber Planning to prepare the PBOQ.
+                </span>
+              </button>
             </div>
-          )}
-          <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3 text-sm text-[color:var(--color-muted-strong)] md:col-span-2">
+          </div>
+          {hasExistingPboq ? (
+            <Field label="Existing PBOQ Attachment">
+              <FileUploadField id="pboqAttachment" name="pboqAttachment" required />
+            </Field>
+          ) : null}
+          <div className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] p-3 text-sm text-[color:var(--color-muted-strong)]">
             <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
               Workflow impact
             </p>
             <p className="mt-2">
-              {surveyAvailable
-                ? "The BC will default to the actual survey cost and SDU should not initiate a new survey later."
-                : "The BC will default to Fiber Planning PBOQ costs, and SDU can initiate the actual survey later."}
+              {hasExistingPboq
+                ? "The existing PBOQ will be attached and Fiber Planning can verify or complete the cost pack."
+                : "A PBOQ request will be sent to Fiber Planning to prepare the cost pack."}
             </p>
           </div>
-          <Field label="Solution Design">
-            <FileUploadField id="solutionDesign" name="solutionDesign" required />
-          </Field>
           <Field label="Request Notes">
             <Textarea name="notes" />
           </Field>
@@ -162,7 +174,7 @@ export function PboqRequestForm({
 
       <FormSubmitButton pendingLabel="Submitting PBOQ…">
         <Save className="h-4 w-4" aria-hidden="true" />
-        Submit PBOQ Request
+        {hasExistingPboq ? "Attach PBOQ" : "Request PBOQ"}
       </FormSubmitButton>
     </form>
   );
