@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Pencil, Send } from "lucide-react";
-import { decideFinanceWorkflowAction } from "@/app/projects/actions";
+import {
+  completeFiberPlanningAction,
+  decideFinanceWorkflowAction,
+  prepareBusinessCaseFromPboqAction,
+} from "@/app/projects/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
+import {
+  FiberPlanningForm,
+  PreparedBcForm,
+} from "@/components/workflow/pboq-workflow-forms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,10 +21,12 @@ import { roleRoutes } from "@/lib/workflow";
 export const dynamic = "force-dynamic";
 
 const attachmentLabels = {
+  SOLUTION_DESIGN: "Solution Design",
   BC_TEMPLATE: "BC Template",
   PBOQ: "PBOQ File",
   ORDER_FORM: "Order Form",
   ACTUAL_SURVEY_QUOTE: "PBOQ / Quote Evidence",
+  BC_APPROVAL_CERTIFICATE: "BC Approval Certificate",
 } as const;
 
 function money(value: number) {
@@ -68,7 +78,15 @@ export default async function ProjectDetailPage({
   }
 
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
+  const fiberPlanningAction = completeFiberPlanningAction.bind(null, project.id);
+  const prepareBcAction = prepareBusinessCaseFromPboqAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
+  const isFiberPlanningStage = project.roleQueue === "Fiber Planning Team";
+  const isAccountManagerBcStage =
+    project.roleQueue === "Account Manager" &&
+    project.state === "Business Case Prepared" &&
+    project.pboqRequest?.completedAt &&
+    project.decision === "PENDING";
   const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
   const dashboardHref = roleRoute?.href ?? "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
@@ -108,7 +126,7 @@ export default async function ProjectDetailPage({
       <div className="mx-auto max-w-6xl space-y-4 px-6 pb-8 pt-6">
         {query.submitted === "bc" ? (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            BC submitted to Finance for approval.
+            BC submitted and routed according to the approval rules.
           </div>
         ) : null}
         {query.draft === "saved" ? (
@@ -154,6 +172,9 @@ export default async function ProjectDetailPage({
               ["Title", project.title],
               ["Region", project.region],
               ["Owner", project.owner],
+              ["Opportunity MRR", money(project.opportunityMrr)],
+              ["Opportunity NRR", money(project.opportunityNrr)],
+              ["Contract Term", `${project.contractTermMonths} months`],
               ["Solution Architecture", project.solutionArchitectureName],
               ["Solution Engineer", project.solutionEngineerName],
               ["Lifecycle Stage", project.state],
@@ -184,6 +205,54 @@ export default async function ProjectDetailPage({
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+            <CardTitle>PBOQ Request</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 p-4 md:grid-cols-3">
+            {project.pboqRequest ? (
+              <>
+                {[
+                  ["Route Distance", `${project.pboqRequest.routeDistanceKm} km`],
+                  ["Site Count", project.pboqRequest.siteCount.toString()],
+                  ["Survey Available", project.pboqRequest.surveyAvailable ? "Yes" : "No"],
+                  ["Cost Source", project.pboqRequest.costSource],
+                  ["Actual Survey Cost", money(project.pboqRequest.actualSurveyCost)],
+                  ["PBOQ Status", project.pboqRequest.completedAt ? "Completed" : "Pending Fiber Planning"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
+                    <p className="mt-2 font-medium">{value}</p>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p className="text-sm text-[color:var(--color-muted)]">No PBOQ request recorded.</p>
+            )}
+          </CardContent>
+        </Card>
+        {isFiberPlanningStage ? (
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Fiber Planning</h2>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                Generate the PBOQ cost pack with material, labor, and wayleave costs.
+              </p>
+            </div>
+            <FiberPlanningForm action={fiberPlanningAction} />
+          </section>
+        ) : null}
+        {isAccountManagerBcStage ? (
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Prepare Business Case</h2>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                Use the Fiber Planning PBOQ costs to prepare and route the BC.
+              </p>
+            </div>
+            <PreparedBcForm action={prepareBcAction} project={project} />
+          </section>
+        ) : null}
         {isFinanceStage ? (
           <Card>
             <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
@@ -225,10 +294,11 @@ export default async function ProjectDetailPage({
         ) : null}
         <Card>
           <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle>Link Items</CardTitle>
+            <CardTitle>{project.links.length > 0 ? "BC Link Items" : "PBOQ Cost Lines"}</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="overflow-x-auto">
+            {project.links.length > 0 ? (
+              <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left text-sm">
                 <thead className="border-b border-[color:var(--color-border)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
                   <tr>
@@ -266,7 +336,38 @@ export default async function ProjectDetailPage({
                   ) : null}
                 </tbody>
               </table>
-            </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="border-b border-[color:var(--color-border)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
+                    <tr>
+                      {["Link", "Material", "Labor", "Wayleave", "Notes"].map((label) => (
+                        <th key={label} className="px-3 py-3 font-medium">{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[color:var(--color-border)]">
+                    {project.pboqRequest?.costLines.map((line) => (
+                      <tr key={line.id}>
+                        <td className="px-3 py-3 font-medium">{line.linkName}</td>
+                        <td className="px-3 py-3">{money(line.material)}</td>
+                        <td className="px-3 py-3">{money(line.labor)}</td>
+                        <td className="px-3 py-3">{money(line.wayleave)}</td>
+                        <td className="px-3 py-3">{line.notes || "-"}</td>
+                      </tr>
+                    ))}
+                    {(project.pboqRequest?.costLines.length ?? 0) === 0 ? (
+                      <tr>
+                        <td className="px-3 py-4 text-[color:var(--color-muted)]" colSpan={5}>
+                          No PBOQ cost lines recorded.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>

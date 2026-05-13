@@ -43,7 +43,7 @@ export default async function ProjectsPage({
           <Button asChild>
             <Link href="/projects/new">
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New BC
+              New PBOQ
             </Link>
           </Button>
         }
@@ -51,7 +51,17 @@ export default async function ProjectsPage({
       <div className="space-y-4 px-6 pb-8 pt-6">
         {query.submitted === "bc" ? (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            BC submitted to Finance for approval. The saved project is listed below.
+            BC submitted and routed according to the approval rules. The saved project is listed below.
+          </div>
+        ) : null}
+        {query.submitted === "pboq" ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            PBOQ request submitted to Fiber Planning. The saved project is listed below.
+          </div>
+        ) : null}
+        {query.submitted === "fiber" ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Fiber Planning completed the PBOQ pack. The project is back with Account Manager for BC preparation.
           </div>
         ) : null}
         {query.draft === "saved" ? (

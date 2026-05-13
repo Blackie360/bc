@@ -58,6 +58,11 @@ export const decisionOutput = pgEnum("DecisionOutput", [
   "PROCEED_WITH_SUBSIDY_DISCLOSURE",
 ]);
 
+export const pboqCostSource = pgEnum("PboqCostSource", [
+  "ACTUAL_SURVEY",
+  "PBOQ_ESTIMATE",
+]);
+
 export const approvalAction = pgEnum("ApprovalAction", [
   "SUBMIT",
   "APPROVE",
@@ -101,6 +106,9 @@ export const opportunities = pgTable("Opportunity", {
   opportunityName: text("opportunityName").notNull(),
   region: text("region").notNull(),
   segment: text("segment").notNull(),
+  mrr: numeric("mrr", { precision: 14, scale: 2 }).default("0").notNull(),
+  nrr: numeric("nrr", { precision: 14, scale: 2 }).default("0").notNull(),
+  contractTermMonths: integer("contractTermMonths").default(12).notNull(),
   accountManagerId: text("accountManagerId")
     .notNull()
     .references(() => users.id),
@@ -122,9 +130,26 @@ export const pboqRequests = pgTable("PboqRequest", {
   siteCount: integer("siteCount").notNull(),
   routeDistanceKm: numeric("routeDistanceKm", { precision: 10, scale: 2 }).notNull(),
   surveyBudget: numeric("surveyBudget", { precision: 14, scale: 2 }).notNull(),
+  surveyAvailable: boolean("surveyAvailable").default(false).notNull(),
+  costSource: pboqCostSource("costSource").default("PBOQ_ESTIMATE").notNull(),
+  actualSurveyCost: numeric("actualSurveyCost", { precision: 14, scale: 2 }).default("0").notNull(),
   notes: text("notes"),
+  fiberPlanningNotes: text("fiberPlanningNotes"),
   requestedAt: timestamp("requestedAt", { mode: "date" }).defaultNow().notNull(),
   completedAt: timestamp("completedAt", { mode: "date" }),
+});
+
+export const pboqCostLines = pgTable("PboqCostLine", {
+  id: textId("id"),
+  pboqRequestId: text("pboqRequestId")
+    .notNull()
+    .references(() => pboqRequests.id),
+  linkName: text("linkName").notNull(),
+  material: numeric("material", { precision: 14, scale: 2 }).notNull(),
+  labor: numeric("labor", { precision: 14, scale: 2 }).notNull(),
+  wayleave: numeric("wayleave", { precision: 14, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
 export const businessCases = pgTable(
@@ -304,10 +329,18 @@ export const opportunitiesRelations = relations(opportunities, ({ one, many }) =
   actualCosts: many(actualCostCaptures),
 }));
 
-export const pboqRequestsRelations = relations(pboqRequests, ({ one }) => ({
+export const pboqRequestsRelations = relations(pboqRequests, ({ one, many }) => ({
   opportunity: one(opportunities, {
     fields: [pboqRequests.opportunityId],
     references: [opportunities.id],
+  }),
+  costLines: many(pboqCostLines),
+}));
+
+export const pboqCostLinesRelations = relations(pboqCostLines, ({ one }) => ({
+  pboqRequest: one(pboqRequests, {
+    fields: [pboqCostLines.pboqRequestId],
+    references: [pboqRequests.id],
   }),
 }));
 

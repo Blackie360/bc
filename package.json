@@ -10,6 +10,7 @@
     "screenshots": "node scripts/capture-lifecycle-screenshots.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
     "db:clear": "node scripts/clear-db.mjs",
     "db:studio": "drizzle-kit studio"
   },

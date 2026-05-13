@@ -7,14 +7,20 @@ import { getCurrentUserDisplayName } from "@/lib/current-user";
 import {
   createBcDraft,
   createBcSubmission,
+  createPboqRequest,
   createProject,
   advanceProjectToNextStage,
+  completeFiberPlanning,
   decideFinanceWorkflow,
   deleteProject,
   getProject,
+  prepareBusinessCaseFromPboq,
   type BcDraftInput,
   type BcSubmissionInput,
+  type FiberPlanningInput,
   type FinanceDecision,
+  type PboqRequestInput,
+  type PreparedBcInput,
   projectInputSchema,
   updateProject,
 } from "@/lib/projects";
@@ -39,6 +45,33 @@ export async function createProjectAction(formData: FormData) {
   const project = await createProject(parseProjectForm(formData));
   revalidateProjectViews();
   redirect(`${projectsHrefForRole(project.roleQueue)}&saved=project`);
+}
+
+export async function createPboqRequestAction(formData: FormData) {
+  const accountManagerName = await getCurrentUserDisplayName();
+  const project = await createPboqRequest({
+    ...parsePboqRequestForm(formData),
+    accountManagerName,
+  });
+
+  revalidateProjectViews();
+  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=pboq`);
+}
+
+export async function completeFiberPlanningAction(id: string, formData: FormData) {
+  const project = await completeFiberPlanning(id, parseFiberPlanningForm(formData));
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=fiber`);
+}
+
+export async function prepareBusinessCaseFromPboqAction(id: string, formData: FormData) {
+  const project = await prepareBusinessCaseFromPboq(id, parsePreparedBcForm(formData));
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=bc`);
 }
 
 export async function createBcSubmissionAction(formData: FormData) {
@@ -133,9 +166,90 @@ const linkFieldNames = [
 
 type LinkFieldName = (typeof linkFieldNames)[number];
 type RawLinkRow = Partial<Record<LinkFieldName, string>>;
+const pboqCostLineFieldNames = ["linkName", "material", "labor", "wayleave", "notes"] as const;
+type PboqCostLineFieldName = (typeof pboqCostLineFieldNames)[number];
+type RawPboqCostLineRow = Partial<Record<PboqCostLineFieldName, string>>;
 
 type BcSubmissionFormFields = Omit<BcSubmissionInput, "accountManagerName">;
 type BcDraftFormFields = Omit<BcDraftInput, "accountManagerName">;
+type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName">;
+
+function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
+  const surveyAvailable = textField(formData, "surveyAvailable") === "yes";
+
+  return {
+    opportunityNumber: textField(formData, "opportunityNumber"),
+    customerName: textField(formData, "customerName"),
+    opportunityName: textField(formData, "opportunityName"),
+    region: textField(formData, "region"),
+    segment: textField(formData, "segment"),
+    mrr: Number(textField(formData, "mrr")),
+    nrr: Number(textField(formData, "nrr")),
+    contractTermMonths: Number(textField(formData, "contractTermMonths")),
+    routeDistanceKm: Number(textField(formData, "routeDistanceKm")),
+    siteCount: Number(textField(formData, "siteCount")),
+    surveyAvailable,
+    actualSurveyCost: numberField(formData, "actualSurveyCost"),
+    notes: textField(formData, "notes"),
+    solutionDesign: fileAttachment(formData, "solutionDesign", "SOLUTION_DESIGN"),
+  };
+}
+
+function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
+  return {
+    fiberPlanningNotes: textField(formData, "fiberPlanningNotes"),
+    lines: parsePboqCostLines(formData),
+    pboqFile: fileAttachment(formData, "pboqFile", "PBOQ"),
+  };
+}
+
+function parsePreparedBcForm(formData: FormData): PreparedBcInput {
+  return {
+    solutionArchitectureName: textField(formData, "solutionArchitectureName"),
+    solutionEngineerName: textField(formData, "solutionEngineerName"),
+    type: textField(formData, "type") as PreparedBcInput["type"],
+    irr: Number(textField(formData, "irr")),
+    payback: Number(textField(formData, "payback")),
+    capex: Number(textField(formData, "capex")),
+    subsidy: Number(textField(formData, "subsidy")),
+    approvedBudget: Number(textField(formData, "approvedBudget")),
+    bcTemplate: fileAttachment(formData, "bcTemplate", "BC_TEMPLATE"),
+    orderForm: fileAttachment(formData, "orderForm", "ORDER_FORM"),
+  };
+}
+
+function parsePboqCostLines(formData: FormData): FiberPlanningInput["lines"] {
+  const rawRows = new Map<number, RawPboqCostLineRow>();
+  const lineFieldPattern = /^pboqLines\[(\d+)]\[(\w+)]$/;
+
+  for (const [key, value] of formData.entries()) {
+    if (typeof value !== "string") continue;
+
+    const match = key.match(lineFieldPattern);
+    if (!match) continue;
+
+    const index = Number(match[1]);
+    const field = match[2] as PboqCostLineFieldName;
+
+    if (!pboqCostLineFieldNames.includes(field)) continue;
+
+    rawRows.set(index, {
+      ...rawRows.get(index),
+      [field]: value.trim(),
+    });
+  }
+
+  return Array.from(rawRows.entries())
+    .sort(([left], [right]) => left - right)
+    .filter(([, row]) => Object.values(row).some((value) => value && value.length > 0))
+    .map(([index, row]) => ({
+      linkName: row.linkName ?? `PBOQ link ${index + 1}`,
+      material: numberOrZero(row.material),
+      labor: numberOrZero(row.labor),
+      wayleave: numberOrZero(row.wayleave),
+      notes: row.notes ?? "",
+    }));
+}
 
 function parseBcSubmissionForm(formData: FormData): BcSubmissionFormFields {
   const pboqAttachment = fileAttachment(formData, "pboqFile", "PBOQ");
@@ -317,12 +431,17 @@ function numberOrZero(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function fileAttachment(
+type AttachmentType =
+  | BcSubmissionInput["attachments"][number]["type"]
+  | "SOLUTION_DESIGN"
+  | "BC_APPROVAL_CERTIFICATE";
+
+function fileAttachment<TType extends AttachmentType>(
   formData: FormData,
   name: string,
-  type: BcSubmissionInput["attachments"][number]["type"],
+  type: TType,
   requiredMessage = `${name} is required.`,
-): BcSubmissionInput["attachments"][number] {
+) {
   const value = formData.get(name);
 
   if (!(value instanceof File) || value.size === 0 || value.name.length === 0) {

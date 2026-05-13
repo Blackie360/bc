@@ -73,12 +73,33 @@ function formatDateTime(value: string) {
 }
 
 function nextRoutingAction(project: ProjectRecord) {
+  if (project.roleQueue === "Fiber Planning Team") {
+    return "Generate PBOQ";
+  }
+
+  if (
+    project.roleQueue === "Account Manager" &&
+    project.state === "Business Case Prepared" &&
+    project.decision === "PENDING"
+  ) {
+    return "Prepare BC";
+  }
+
   const hasPboqAttachment = project.documents.some(
     (document) =>
       document.type === "PBOQ" || document.type === "ACTUAL_SURVEY_QUOTE",
   );
 
   return hasPboqAttachment ? "Send to Finance" : "Request PBOQ";
+}
+
+function requiresDetailForm(project: ProjectRecord) {
+  return (
+    project.roleQueue === "Fiber Planning Team" ||
+    (project.roleQueue === "Account Manager" &&
+      project.state === "Business Case Prepared" &&
+      project.decision === "PENDING")
+  );
 }
 
 function nextTransitionForProject(project: ProjectRecord) {
@@ -280,7 +301,7 @@ export function RoleRoutePage({
           <Button asChild size="sm">
             <Link href="/projects/new">
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New Project
+              New PBOQ
             </Link>
           </Button>
         }
@@ -406,19 +427,25 @@ export function RoleRoutePage({
                           <Button asChild size="sm" className="min-w-14">
                             <Link href={`/projects/${item.id}`}>View</Link>
                           </Button>
-                          <form
-                            action={advanceProjectToNextStageAction.bind(null, item.id)}
-                            className="inline-flex"
-                          >
-                            <FormSubmitButton
-                              size="sm"
-                              variant="secondary"
-                              pendingLabel="Sending…"
-                              className="min-w-44 whitespace-nowrap"
+                          {requiresDetailForm(item) ? (
+                            <Button asChild size="sm" variant="secondary" className="min-w-44 whitespace-nowrap">
+                              <Link href={`/projects/${item.id}`}>{nextRoutingAction(item)}</Link>
+                            </Button>
+                          ) : (
+                            <form
+                              action={advanceProjectToNextStageAction.bind(null, item.id)}
+                              className="inline-flex"
                             >
-                              {nextTransitionForProject(item)?.to ?? "No next stage"}
-                            </FormSubmitButton>
-                          </form>
+                              <FormSubmitButton
+                                size="sm"
+                                variant="secondary"
+                                pendingLabel="Sending…"
+                                className="min-w-44 whitespace-nowrap"
+                              >
+                                {nextTransitionForProject(item)?.to ?? "No next stage"}
+                              </FormSubmitButton>
+                            </form>
+                          )}
                         </div>
                       </td>
                     </tr>

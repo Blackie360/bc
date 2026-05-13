@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { createBcSubmissionAction } from "@/app/projects/actions";
+import { createPboqRequestAction } from "@/app/projects/actions";
 import { Button } from "@/components/ui/button";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
-import { BcSubmissionForm } from "@/components/workflow/bc-submission-form";
+import { PboqRequestForm } from "@/components/workflow/pboq-workflow-forms";
 import { getCurrentUserDisplayName } from "@/lib/current-user";
 import { roleRoutes } from "@/lib/workflow";
 
@@ -28,8 +28,8 @@ export default async function NewProjectPage() {
       projectsHref={accountManagerProjectsHref}
     >
       <ShellHeading
-        title="Account Manager BC Submission"
-        subtitle="Capture opportunity details, link items, evidence, and submit for Finance approval."
+        title="Account Manager PBOQ Request"
+        subtitle="Create the opportunity, attach Solution Design, and send the request to Fiber Planning."
         action={
           <Button asChild variant="secondary" size="sm">
             <Link href={accountManagerProjectsHref}>
@@ -40,8 +40,8 @@ export default async function NewProjectPage() {
         }
       />
       <div className="mx-auto max-w-7xl space-y-4 px-6 pb-8 pt-6">
-        <BcSubmissionForm
-          action={createBcSubmissionAction}
+        <PboqRequestForm
+          action={createPboqRequestAction}
           accountManagerDisplayName={accountManagerDisplayName}
         />
       </div>

@@ -9,13 +9,32 @@ const globalForDb = globalThis as unknown as {
   pgPool?: Pool;
 };
 
+function normalizeDatabaseUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const sslMode = url.searchParams.get("sslmode");
+
+    if (
+      sslMode &&
+      ["prefer", "require", "verify-ca"].includes(sslMode) &&
+      !url.searchParams.has("uselibpqcompat")
+    ) {
+      url.searchParams.set("sslmode", "verify-full");
+    }
+
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 function createPool() {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required to initialize Drizzle.");
   }
 
   return new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: normalizeDatabaseUrl(process.env.DATABASE_URL),
     connectionTimeoutMillis: 15_000,
     idleTimeoutMillis: 30_000,
     max: 5,
