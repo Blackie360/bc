@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   createBcSubmission,
+  createFindingComment,
   createProject,
   decideFinanceWorkflow,
   deleteProject,
@@ -49,6 +50,14 @@ export async function decideFinanceWorkflowAction(id: string, formData: FormData
     financeDecisionField(formData),
     textField(formData, "notes"),
   );
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
+export async function createFindingCommentAction(id: string, formData: FormData) {
+  const project = await createFindingComment(id, textField(formData, "notes"));
 
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();

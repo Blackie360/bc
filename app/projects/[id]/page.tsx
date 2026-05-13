@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Pencil, Send } from "lucide-react";
-import { decideFinanceWorkflowAction } from "@/app/projects/actions";
+import { ArrowLeft, CheckCircle2, MessageSquare, Pencil, Send } from "lucide-react";
+import { createFindingCommentAction, decideFinanceWorkflowAction } from "@/app/projects/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,8 +19,21 @@ const attachmentLabels = {
   ACTUAL_SURVEY_QUOTE: "PBOQ / Quote Evidence",
 } as const;
 
+const findingCommentRoles = new Set([
+  "CFO",
+  "Solutions Architect",
+  "Solutions Engineer",
+]);
+
 function money(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function dateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function FinanceDecisionForm({
@@ -52,6 +65,26 @@ function FinanceDecisionForm({
   );
 }
 
+function FindingCommentForm({
+  action,
+}: {
+  action: (formData: FormData) => void | Promise<void>;
+}) {
+  return (
+    <form action={action} className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-white p-3">
+      <Textarea
+        name="notes"
+        placeholder="Share findings, concerns, or clarification notes about this opportunity"
+        required
+      />
+      <Button type="submit" size="sm">
+        <MessageSquare className="h-4 w-4" aria-hidden="true" />
+        Send Comment
+      </Button>
+    </form>
+  );
+}
+
 export default async function ProjectDetailPage({
   params,
 }: {
@@ -65,7 +98,9 @@ export default async function ProjectDetailPage({
   }
 
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
+  const findingCommentAction = createFindingCommentAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
+  const canSendFindingComment = findingCommentRoles.has(project.roleQueue);
 
   return (
     <AdminShell
@@ -207,6 +242,52 @@ export default async function ProjectDetailPage({
                 notesPlaceholder="Question for the Solutions Engineer"
                 variant="warning"
               />
+            </CardContent>
+          </Card>
+        ) : null}
+        {canSendFindingComment || project.comments.length > 0 ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>Finding Comments</CardTitle>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                CFO, Solutions Architect, and Solutions Engineer comments stay with the opportunity history.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+              {canSendFindingComment ? (
+                <FindingCommentForm action={findingCommentAction} />
+              ) : (
+                <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3 text-sm text-[color:var(--color-muted)]">
+                  Finding comments open when this opportunity is queued with CFO, Solutions Architect, or
+                  Solutions Engineer.
+                </div>
+              )}
+              <div className="grid gap-3">
+                {project.comments.map((comment) => (
+                  <article
+                    key={comment.id}
+                    className="rounded-md border border-[color:var(--color-border)] bg-white p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-[color:var(--color-primary)]">{comment.actorName}</p>
+                        <p className="text-xs text-[color:var(--color-muted)]">{comment.role}</p>
+                      </div>
+                      <time className="text-xs text-[color:var(--color-muted)]" dateTime={comment.createdAt}>
+                        {dateTime(comment.createdAt)}
+                      </time>
+                    </div>
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-[color:var(--color-muted-strong)]">
+                      {comment.notes}
+                    </p>
+                  </article>
+                ))}
+                {project.comments.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-[color:var(--color-border)] bg-white p-3 text-sm text-[color:var(--color-muted)]">
+                    No finding comments have been sent yet.
+                  </div>
+                ) : null}
+              </div>
             </CardContent>
           </Card>
         ) : null}

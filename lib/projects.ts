@@ -176,12 +176,21 @@ export type ProjectDocumentRecord = {
   createdAt: string;
 };
 
+export type ProjectCommentRecord = {
+  id: string;
+  role: Role;
+  actorName: string;
+  notes: string;
+  createdAt: string;
+};
+
 export type ProjectRecord = ProjectInput & {
   id: string;
   solutionArchitectureName: string;
   solutionEngineerName: string;
   links: ProjectLinkRecord[];
   documents: ProjectDocumentRecord[];
+  comments: ProjectCommentRecord[];
   totalMrr: number;
   totalMrc: number;
   totalNrc: number;
@@ -198,6 +207,12 @@ export type FinanceDecision =
   | "reject-escalate-cfo"
   | "reject-question-architect"
   | "reject-question-engineer";
+
+const findingCommentRoles: readonly Role[] = [
+  "CFO",
+  "Solutions Architect",
+  "Solutions Engineer",
+];
 
 function dbNumber(value: unknown) {
   return Number(value ?? 0);
@@ -328,6 +343,45 @@ async function getProjectDocuments(opportunityId: string): Promise<ProjectDocume
   }));
 }
 
+async function getProjectComments(
+  opportunityId: string,
+  businessCaseId?: string,
+): Promise<ProjectCommentRecord[]> {
+  const db = getDb();
+
+  if (!businessCaseId) return [];
+
+  const rows = await db
+    .select()
+    .from(approvalHistory)
+    .where(
+      and(
+        eq(approvalHistory.opportunityId, opportunityId),
+        eq(approvalHistory.businessCaseId, businessCaseId),
+        eq(approvalHistory.action, "VALIDATE"),
+      ),
+    )
+    .orderBy(desc(approvalHistory.createdAt));
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const [actor] = await db
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, row.actorId))
+        .limit(1);
+
+      return {
+        id: row.id,
+        role: dbToRole[row.role],
+        actorName: actor?.name ?? dbToRole[row.role],
+        notes: row.notes ?? "",
+        createdAt: row.createdAt.toISOString(),
+      };
+    }),
+  );
+}
+
 async function toProjectRecord(
   opportunity: typeof opportunities.$inferSelect,
 ): Promise<ProjectRecord | undefined> {
@@ -340,9 +394,10 @@ async function toProjectRecord(
   const businessCase = await getLatestBusinessCase(opportunity.id);
   const assignment = await getLatestAssignment(opportunity.id);
   const actuals = await getLatestActuals(opportunity.id, businessCase?.id);
-  const [links, projectDocuments] = await Promise.all([
+  const [links, projectDocuments, comments] = await Promise.all([
     getBusinessCaseLinks(businessCase?.id),
     getProjectDocuments(opportunity.id),
+    getProjectComments(opportunity.id, businessCase?.id),
   ]);
 
   if (!businessCase) {
@@ -368,6 +423,7 @@ async function toProjectRecord(
     solutionEngineerName: businessCase.solutionEngineerName,
     links,
     documents: projectDocuments,
+    comments,
     totalMrr: links.reduce((total, link) => total + link.mrr, 0),
     totalMrc: links.reduce((total, link) => total + link.mrc, 0),
     totalNrc: links.reduce((total, link) => total + link.nrc, 0),
@@ -793,6 +849,74 @@ export async function decideFinanceWorkflow(
 
   if (!project) {
     throw new Error("Finance decision was saved but the project could not be read.");
+  }
+
+  return project;
+}
+
+export async function createFindingComment(id: string, notes: string) {
+  const db = getDb();
+  const trimmedNotes = notes.trim();
+
+  if (trimmedNotes.length === 0) {
+    throw new Error("Comment is required.");
+  }
+
+  const [existing] = await db
+    .select()
+    .from(opportunities)
+    .where(eq(opportunities.reference, id))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error("Project not found.");
+  }
+
+  const businessCase = await getLatestBusinessCase(existing.id);
+  const assignment = await getLatestAssignment(existing.id);
+
+  if (!businessCase) {
+    throw new Error("Project has no business case to comment on.");
+  }
+
+  const actorRole = assignment ? dbToRole[assignment.role] : undefined;
+
+  if (!actorRole || !findingCommentRoles.includes(actorRole)) {
+    throw new Error("Only CFO, Solutions Architect, or Solutions Engineer queues can send findings.");
+  }
+
+  const actorId =
+    assignment?.assigneeId ??
+    (await findOrCreateUser(actorRole, actorRole)).id;
+
+  await db.insert(approvalHistory).values({
+    opportunityId: existing.id,
+    businessCaseId: businessCase.id,
+    actorId,
+    role: roleToDb[actorRole],
+    action: "VALIDATE",
+    fromStatus: existing.status,
+    toStatus: existing.status,
+    decision: businessCase.decisionOutput,
+    notes: trimmedNotes,
+  });
+
+  await db.insert(auditLogs).values({
+    opportunityId: existing.id,
+    actorId,
+    event: "OPPORTUNITY_FINDING_COMMENTED",
+    entityType: "BusinessCase",
+    entityId: businessCase.id,
+    metadata: {
+      role: actorRole,
+      notes: trimmedNotes,
+    },
+  });
+
+  const project = await toProjectRecord(existing);
+
+  if (!project) {
+    throw new Error("Comment was saved but the project could not be read.");
   }
 
   return project;
