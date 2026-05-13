@@ -793,7 +793,14 @@ export async function createPboqRequest(input: PboqRequestInput) {
     validated.accountManagerName,
     "Account Manager",
   );
-  const fiberPlanner = await findOrCreateUser("Fiber Planning Team", "Fiber Planning Team");
+  const hasExistingPboq = validated.pboqMode === "existing";
+  const nextStatus = hasExistingPboq
+    ? statusToDb["Business Case Prepared"]
+    : statusToDb["PBOQ Request Submitted"];
+  const nextRole: Role = hasExistingPboq ? "Account Manager" : "Fiber Planning Team";
+  const nextAssignee = hasExistingPboq
+    ? accountManager
+    : await findOrCreateUser("Fiber Planning Team", "Fiber Planning Team");
   const [existing] = await db
     .select({ id: opportunities.id })
     .from(opportunities)
@@ -816,7 +823,7 @@ export async function createPboqRequest(input: PboqRequestInput) {
       nrr: toNumeric(validated.nrr),
       contractTermMonths: validated.contractTermMonths,
       accountManagerId: accountManager.id,
-      status: statusToDb["PBOQ Request Submitted"],
+      status: nextStatus,
       priority: "Normal",
     })
     .returning();
@@ -848,14 +855,15 @@ export async function createPboqRequest(input: PboqRequestInput) {
       costSource: validated.surveyAvailable ? "ACTUAL_SURVEY" : "PBOQ_ESTIMATE",
       actualSurveyCost: toNumeric(validated.actualSurveyCost),
       notes: validated.notes || null,
+      completedAt: hasExistingPboq ? new Date() : null,
     })
     .returning();
 
   await db.insert(workflowAssignments).values({
     opportunityId: opportunity.id,
-    role: roleToDb["Fiber Planning Team"],
-    assigneeId: fiberPlanner.id,
-    status: statusToDb["PBOQ Request Submitted"],
+    role: roleToDb[nextRole],
+    assigneeId: nextAssignee.id,
+    status: nextStatus,
   });
 
   await db.insert(approvalHistory).values({
@@ -864,18 +872,20 @@ export async function createPboqRequest(input: PboqRequestInput) {
     role: "ACCOUNT_MANAGER",
     action: "SUBMIT",
     fromStatus: "OPPORTUNITY_CREATED",
-    toStatus: statusToDb["PBOQ Request Submitted"],
-    notes: "Account Manager submitted PBOQ request attachment.",
+    toStatus: nextStatus,
+    notes: hasExistingPboq
+      ? "Account Manager attached an existing PBOQ and moved the project to BC preparation."
+      : "Account Manager requested Fiber Planning to prepare the PBOQ.",
   });
 
   await db.insert(auditLogs).values({
     opportunityId: opportunity.id,
     actorId: accountManager.id,
-    event: "PBOQ_REQUEST_SUBMITTED",
+    event: hasExistingPboq ? "PBOQ_ATTACHED_FOR_BC_PREPARATION" : "PBOQ_REQUEST_SUBMITTED",
     entityType: "PboqRequest",
     entityId: pboqRequest.id,
     metadata: {
-      nextRole: "Fiber Planning Team",
+      nextRole,
       pboqMode: validated.pboqMode,
       pboqAttachmentId: pboqAttachment?.id,
       surveyAvailable: validated.surveyAvailable,
@@ -1025,8 +1035,8 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
 
   const pboqRequest = await getOpportunityPboqRequest(opportunity.id);
 
-  if (!pboqRequest || pboqRequest.costLines.length === 0) {
-    throw new Error("PBOQ cost lines are required before BC preparation.");
+  if (!pboqRequest) {
+    throw new Error("PBOQ attachment or request is required before BC preparation.");
   }
 
   const assignment = await completeLatestAssignment(opportunity.id);
@@ -1099,20 +1109,22 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
       ? 0
       : dbNumber(opportunity.nrr) / pboqRequest.costLines.length;
 
-  await db.insert(businessCaseLinks).values(
-    pboqRequest.costLines.map((line) => ({
-      businessCaseId: businessCase.id,
-      linkName: line.linkName,
-      material: toNumeric(line.material),
-      labor: toNumeric(line.labor),
-      wayleave: toNumeric(line.wayleave),
-      mrr: toNumeric(perLinkMrr),
-      mrc: "0",
-      nrc: "0",
-      nrr: toNumeric(perLinkNrr),
-      evidenceDocumentId: pboqDocumentId,
-    })),
-  );
+  if (pboqRequest.costLines.length > 0) {
+    await db.insert(businessCaseLinks).values(
+      pboqRequest.costLines.map((line) => ({
+        businessCaseId: businessCase.id,
+        linkName: line.linkName,
+        material: toNumeric(line.material),
+        labor: toNumeric(line.labor),
+        wayleave: toNumeric(line.wayleave),
+        mrr: toNumeric(perLinkMrr),
+        mrc: "0",
+        nrc: "0",
+        nrr: toNumeric(perLinkNrr),
+        evidenceDocumentId: pboqDocumentId,
+      })),
+    );
+  }
 
   const [updatedOpportunity] = await db
     .update(opportunities)
