@@ -11,6 +11,56 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ProjectRecord } from "@/lib/projects";
 
+const kenyaCounties = [
+  "Baringo",
+  "Bomet",
+  "Bungoma",
+  "Busia",
+  "Elgeyo-Marakwet",
+  "Embu",
+  "Garissa",
+  "Homa Bay",
+  "Isiolo",
+  "Kajiado",
+  "Kakamega",
+  "Kericho",
+  "Kiambu",
+  "Kilifi",
+  "Kirinyaga",
+  "Kisii",
+  "Kisumu",
+  "Kitui",
+  "Kwale",
+  "Laikipia",
+  "Lamu",
+  "Machakos",
+  "Makueni",
+  "Mandera",
+  "Marsabit",
+  "Meru",
+  "Migori",
+  "Mombasa",
+  "Murang'a",
+  "Nairobi",
+  "Nakuru",
+  "Nandi",
+  "Narok",
+  "Nyamira",
+  "Nyandarua",
+  "Nyeri",
+  "Samburu",
+  "Siaya",
+  "Taita-Taveta",
+  "Tana River",
+  "Tharaka-Nithi",
+  "Trans Nzoia",
+  "Turkana",
+  "Uasin Gishu",
+  "Vihiga",
+  "Wajir",
+  "West Pokot",
+] as const;
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="grid gap-2 text-sm font-medium text-[color:var(--color-muted-strong)]">
@@ -66,115 +116,76 @@ export function PboqRequestForm({
   action: (formData: FormData) => void | Promise<void>;
   accountManagerDisplayName: string;
 }) {
-  const [pboqMode, setPboqMode] = useState<"existing" | "request">("request");
-  const hasExistingPboq = pboqMode === "existing";
+  const todayDate = new Date().toISOString().slice(0, 10);
 
   return (
     <form action={action} className="space-y-4">
+      <input type="hidden" name="pboqMode" value="request" />
       <Card>
         <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">Opportunity</CardTitle>
+          <CardTitle className="text-sm">Project Start Request</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-2">
           <Field label="Opportunity Number">
             <Input name="opportunityNumber" required />
           </Field>
-          <Field label="Client / Customer">
+          <Field label="Date Requested">
+            <Input name="dateRequested" type="date" defaultValue={todayDate} required />
+          </Field>
+          <Field label="Customer Name">
             <Input name="customerName" required />
           </Field>
-          <Field label="Opportunity Name">
-            <Input name="opportunityName" required />
+          <Field label="Site Name">
+            <Input name="siteName" required />
           </Field>
-          <Field label="Account Manager">
+          <Field label="Site Coordinates">
+            <Input
+              name="siteCoordinates"
+              placeholder="1.2975 S, 36.8914 E"
+              required
+            />
+          </Field>
+          <Field label="Required Service">
+            <Select name="requiredService" defaultValue="EPL">
+              <option value="EPL">EPL</option>
+              <option value="DIA">DIA</option>
+              <option value="DFA">DFA</option>
+            </Select>
+          </Field>
+          <Field label="Capacity">
+            <Input name="capacity" placeholder="e.g. 1 Gbps" required />
+          </Field>
+          <Field label="Sales Requestor">
             <div className="flex h-10 items-center rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-3 text-sm">
               {accountManagerDisplayName}
             </div>
+            <input type="hidden" name="salesRequestor" value={accountManagerDisplayName} />
+          </Field>
+          <Field label="Lead Network Planner">
+            <Input name="leadNetworkPlanner" required />
           </Field>
           <Field label="Region">
-            <Input name="region" required />
-          </Field>
-          <Field label="Segment">
-            <Input name="segment" defaultValue="Enterprise" required />
-          </Field>
-          <Field label="MRR">
-            <Input name="mrr" type="number" inputMode="decimal" min="0" step="0.01" required />
-          </Field>
-          <Field label="NRR">
-            <Input name="nrr" type="number" inputMode="decimal" min="0" step="0.01" required />
-          </Field>
-          <Field label="Contract Term Months">
-            <Input name="contractTermMonths" type="number" inputMode="numeric" min="1" defaultValue={12} required />
-          </Field>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">PBOQ Availability</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 p-4 md:grid-cols-2">
-          <input type="hidden" name="pboqMode" value={pboqMode} />
-          <div className="grid gap-2 md:col-span-2">
-            <p className="text-sm font-medium text-[color:var(--color-muted-strong)]">
-              Is there an existing PBOQ?
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                aria-pressed={hasExistingPboq}
-                onClick={() => setPboqMode("existing")}
-                className={
-                  hasExistingPboq
-                    ? "rounded-md border border-[color:var(--color-primary)] bg-[color:var(--color-primary)] px-3 py-3 text-left text-sm font-semibold text-white"
-                    : "rounded-md border border-[color:var(--color-border)] bg-white px-3 py-3 text-left text-sm font-semibold text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)]"
-                }
-              >
-                Existing PBOQ
-                <span className={hasExistingPboq ? "mt-1 block text-xs font-normal text-white/70" : "mt-1 block text-xs font-normal text-[color:var(--color-muted)]"}>
-                  Attach the PBOQ file to the project.
-                </span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={!hasExistingPboq}
-                onClick={() => setPboqMode("request")}
-                className={
-                  !hasExistingPboq
-                    ? "rounded-md border border-[color:var(--color-primary)] bg-[color:var(--color-primary)] px-3 py-3 text-left text-sm font-semibold text-white"
-                    : "rounded-md border border-[color:var(--color-border)] bg-white px-3 py-3 text-left text-sm font-semibold text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)]"
-                }
-              >
-                Request Fiber Planning
-                <span className={!hasExistingPboq ? "mt-1 block text-xs font-normal text-white/70" : "mt-1 block text-xs font-normal text-[color:var(--color-muted)]"}>
-                  Send the project to Fiber Planning to prepare the PBOQ.
-                </span>
-              </button>
-            </div>
-          </div>
-          {hasExistingPboq ? (
-            <Field label="Existing PBOQ Attachment">
-              <FileUploadField id="pboqAttachment" name="pboqAttachment" required />
-            </Field>
-          ) : null}
-          <div className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] p-3 text-sm text-[color:var(--color-muted-strong)]">
-            <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-              Workflow impact
-            </p>
-            <p className="mt-2">
-              {hasExistingPboq
-                ? "The existing PBOQ will be attached and Fiber Planning can verify or complete the cost pack."
-                : "A PBOQ request will be sent to Fiber Planning to prepare the cost pack."}
-            </p>
-          </div>
-          <Field label="Request Notes">
-            <Textarea name="notes" />
+            <>
+              <Input
+                name="region"
+                list="kenya-counties"
+                defaultValue={kenyaCounties[0]}
+                placeholder="Start typing a county name..."
+                required
+              />
+              <datalist id="kenya-counties">
+                {kenyaCounties.map((county) => (
+                  <option key={county} value={county} />
+                ))}
+              </datalist>
+            </>
           </Field>
         </CardContent>
       </Card>
 
       <FormSubmitButton pendingLabel="Submitting PBOQ…">
         <Save className="h-4 w-4" aria-hidden="true" />
-        {hasExistingPboq ? "Attach PBOQ" : "Request PBOQ"}
+        Request PBOQ
       </FormSubmitButton>
     </form>
   );
@@ -212,7 +223,7 @@ export function FiberPlanningForm({
             <table className="w-full min-w-[820px] text-left text-sm">
               <thead className="text-[11px] uppercase text-[color:var(--color-muted)]">
                 <tr>
-                  {["Link", "Material", "Labor", "Wayleave", "Notes", "Action"].map((label) => (
+                  {["Link", "Build", "Material", "Wayleave", "Notes", "Action"].map((label) => (
                     <th key={label} className="px-2 py-2 font-medium">{label}</th>
                   ))}
                 </tr>
@@ -224,10 +235,10 @@ export function FiberPlanningForm({
                       <Input name={`pboqLines[${index}][linkName]`} required />
                     </td>
                     <td className="px-2 py-2">
-                      <Input name={`pboqLines[${index}][material]`} type="number" inputMode="decimal" min="0" step="0.01" required />
+                      <Input name={`pboqLines[${index}][build]`} type="number" inputMode="decimal" min="0" step="0.01" required />
                     </td>
                     <td className="px-2 py-2">
-                      <Input name={`pboqLines[${index}][labor]`} type="number" inputMode="decimal" min="0" step="0.01" required />
+                      <Input name={`pboqLines[${index}][material]`} type="number" inputMode="decimal" min="0" step="0.01" required />
                     </td>
                     <td className="px-2 py-2">
                       <Input name={`pboqLines[${index}][wayleave]`} type="number" inputMode="decimal" min="0" step="0.01" required />
@@ -260,6 +271,18 @@ export function FiberPlanningForm({
           <Field label="Fiber Planning Notes">
             <Textarea name="fiberPlanningNotes" />
           </Field>
+          <Field label="Summary Proof Excel (optional if uploading 3 category proofs)">
+            <FileUploadField id="summaryProofFile" name="summaryProofFile" />
+          </Field>
+          <Field label="Build Proof Excel">
+            <FileUploadField id="buildProofFile" name="buildProofFile" />
+          </Field>
+          <Field label="Material Proof Excel">
+            <FileUploadField id="materialProofFile" name="materialProofFile" />
+          </Field>
+          <Field label="Wayleave Proof Excel">
+            <FileUploadField id="wayleaveProofFile" name="wayleaveProofFile" />
+          </Field>
         </CardContent>
       </Card>
       <FormSubmitButton pendingLabel="Completing planning…">
@@ -280,7 +303,7 @@ export function PreparedBcForm({
   const pboqBudget = useMemo(
     () =>
       project.pboqRequest?.costLines.reduce(
-        (total, line) => total + line.material + line.labor + line.wayleave,
+        (total, line) => total + line.material + line.build + line.wayleave,
         0,
       ) ?? 0,
     [project.pboqRequest?.costLines],

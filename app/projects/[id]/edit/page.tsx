@@ -17,6 +17,9 @@ export default async function EditProjectPage({
   if (!project) {
     notFound();
   }
+  if (project.roleQueue === "Fiber Planning Team") {
+    notFound();
+  }
 
   const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
   const dashboardHref = roleRoute?.href ?? "/roles";

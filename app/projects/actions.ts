@@ -59,6 +59,15 @@ export async function createPboqRequestAction(formData: FormData) {
 }
 
 export async function completeFiberPlanningAction(id: string, formData: FormData) {
+  const existingProject = await getProject(id);
+  const isFiberPlanningStage =
+    existingProject?.roleQueue === "Fiber Planning Team" &&
+    (existingProject.state === "PBOQ Request Submitted" ||
+      existingProject.state === "Fiber Planning Generates Costs");
+  if (!existingProject || !isFiberPlanningStage) {
+    throw new Error("Fiber Planning submission is only allowed for Fiber Planning queue projects.");
+  }
+
   const project = await completeFiberPlanning(id, parseFiberPlanningForm(formData));
 
   revalidatePath(`/projects/${project.id}`);
@@ -97,6 +106,16 @@ export async function createBcSubmissionAction(formData: FormData) {
 }
 
 export async function updateProjectAction(id: string, formData: FormData) {
+  const existing = await getProject(id);
+  if (!existing) {
+    throw new Error("Project not found.");
+  }
+  if (existing.roleQueue === "Fiber Planning Team") {
+    throw new Error(
+      "Fiber Planning projects cannot be edited from Project Edit. Use the Fiber Planning submission form.",
+    );
+  }
+
   const project = await updateProject(id, parseProjectForm(formData));
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
@@ -166,7 +185,7 @@ const linkFieldNames = [
 
 type LinkFieldName = (typeof linkFieldNames)[number];
 type RawLinkRow = Partial<Record<LinkFieldName, string>>;
-const pboqCostLineFieldNames = ["linkName", "material", "labor", "wayleave", "notes"] as const;
+const pboqCostLineFieldNames = ["linkName", "material", "build", "wayleave", "notes"] as const;
 type PboqCostLineFieldName = (typeof pboqCostLineFieldNames)[number];
 type RawPboqCostLineRow = Partial<Record<PboqCostLineFieldName, string>>;
 
@@ -180,12 +199,19 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
     customerName: textField(formData, "customerName"),
-    opportunityName: textField(formData, "opportunityName"),
+    siteName: textField(formData, "siteName"),
+    siteCoordinates: textField(formData, "siteCoordinates"),
+    requiredService: textField(formData, "requiredService") as PboqRequestInput["requiredService"],
+    capacity: textField(formData, "capacity"),
+    dateRequested: textField(formData, "dateRequested"),
+    salesRequestor: textField(formData, "salesRequestor"),
+    leadNetworkPlanner: textField(formData, "leadNetworkPlanner"),
+    designPlanDate: textField(formData, "designPlanDate") || textField(formData, "dateRequested"),
     region: textField(formData, "region"),
-    segment: textField(formData, "segment"),
-    mrr: Number(textField(formData, "mrr")),
-    nrr: Number(textField(formData, "nrr")),
-    contractTermMonths: Number(textField(formData, "contractTermMonths")),
+    segment: "Enterprise",
+    mrr: 0,
+    nrr: 0,
+    contractTermMonths: 12,
     pboqMode: pboqMode === "existing" ? "existing" : "request",
     routeDistanceKm: 0,
     siteCount: 0,
@@ -201,10 +227,39 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
 }
 
 function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
+  const summaryProofFile = optionalFileAttachment(formData, "summaryProofFile", "PBOQ_SUMMARY_PROOF");
+  const buildProofFile = optionalFileAttachment(formData, "buildProofFile", "PBOQ_BUILD_PROOF");
+  const materialProofFile = optionalFileAttachment(
+    formData,
+    "materialProofFile",
+    "PBOQ_MATERIAL_PROOF",
+  );
+  const wayleaveProofFile = optionalFileAttachment(
+    formData,
+    "wayleaveProofFile",
+    "PBOQ_WAYLEAVE_PROOF",
+  );
+  const hasCategoryProofs = Boolean(buildProofFile && materialProofFile && wayleaveProofFile);
+
+  if (!summaryProofFile && !hasCategoryProofs) {
+    throw new Error(
+      "Attach either one combined summary Excel or all three proof Excels (Build, Material, Wayleave).",
+    );
+  }
+
+  validateExcelAttachment(summaryProofFile);
+  validateExcelAttachment(buildProofFile);
+  validateExcelAttachment(materialProofFile);
+  validateExcelAttachment(wayleaveProofFile);
+
   return {
     fiberPlanningNotes: textField(formData, "fiberPlanningNotes"),
     lines: parsePboqCostLines(formData),
     pboqFile: fileAttachment(formData, "pboqFile", "PBOQ"),
+    summaryProofFile,
+    buildProofFile,
+    materialProofFile,
+    wayleaveProofFile,
   };
 }
 
@@ -250,7 +305,7 @@ function parsePboqCostLines(formData: FormData): FiberPlanningInput["lines"] {
     .map(([index, row]) => ({
       linkName: row.linkName ?? `PBOQ link ${index + 1}`,
       material: numberOrZero(row.material),
-      labor: numberOrZero(row.labor),
+      build: numberOrZero(row.build),
       wayleave: numberOrZero(row.wayleave),
       notes: row.notes ?? "",
     }));
@@ -439,7 +494,11 @@ function numberOrZero(value: string | undefined) {
 type AttachmentType =
   | BcSubmissionInput["attachments"][number]["type"]
   | "SOLUTION_DESIGN"
-  | "BC_APPROVAL_CERTIFICATE";
+  | "BC_APPROVAL_CERTIFICATE"
+  | "PBOQ_SUMMARY_PROOF"
+  | "PBOQ_BUILD_PROOF"
+  | "PBOQ_MATERIAL_PROOF"
+  | "PBOQ_WAYLEAVE_PROOF";
 
 function fileAttachment<TType extends AttachmentType>(
   formData: FormData,
@@ -480,6 +539,16 @@ function optionalFileAttachment<TType extends AttachmentType>(
     sizeBytes: value.size,
     storageKey: `metadata/${randomUUID()}-${value.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
   };
+}
+
+function validateExcelAttachment(attachment: ReturnType<typeof optionalFileAttachment>) {
+  if (!attachment) return;
+
+  const loweredName = attachment.name.toLowerCase();
+  const isExcelName = loweredName.endsWith(".xlsx") || loweredName.endsWith(".xls");
+  if (!isExcelName) {
+    throw new Error("Proof attachments must be Excel files (.xls or .xlsx).");
+  }
 }
 
 function submissionIntent(formData: FormData) {

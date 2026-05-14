@@ -36,6 +36,7 @@ type DbBusinessCaseType = (typeof businessCases.$inferSelect)["type"];
 type DbDecision = (typeof businessCases.$inferSelect)["decisionOutput"];
 type DbDocumentType = (typeof documents.$inferSelect)["type"];
 type DbPboqCostSource = (typeof pboqRequests.$inferSelect)["costSource"];
+type DbRequiredService = (typeof opportunities.$inferSelect)["requiredService"];
 
 const roleToDb: Record<Role, DbRole> = {
   "Account Manager": "ACCOUNT_MANAGER",
@@ -161,7 +162,14 @@ export const pboqRequestInputSchema = z
   .object({
     opportunityNumber: z.string().min(2),
     customerName: z.string().min(2),
-    opportunityName: z.string().min(3),
+    siteName: z.string().min(2),
+    siteCoordinates: z.string().min(2),
+    requiredService: z.enum(["EPL", "DIA", "DFA"]),
+    capacity: z.string().min(1),
+    dateRequested: z.string().min(1),
+    salesRequestor: z.string().min(2),
+    leadNetworkPlanner: z.string().min(2),
+    designPlanDate: z.string().min(1),
     accountManagerName: z.string().min(2),
     region: z.string().min(2),
     segment: z.string().min(2),
@@ -204,7 +212,7 @@ export type PboqRequestInput = z.infer<typeof pboqRequestInputSchema>;
 export const pboqCostLineInputSchema = z.object({
   linkName: z.string().min(1),
   material: z.coerce.number().nonnegative(),
-  labor: z.coerce.number().nonnegative(),
+  build: z.coerce.number().nonnegative(),
   wayleave: z.coerce.number().nonnegative(),
   notes: z.string().optional(),
 });
@@ -219,6 +227,42 @@ export const fiberPlanningInputSchema = z.object({
     sizeBytes: z.number().int().positive(),
     storageKey: z.string().min(1),
   }),
+  summaryProofFile: z
+    .object({
+      type: z.literal("PBOQ_SUMMARY_PROOF"),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    })
+    .optional(),
+  buildProofFile: z
+    .object({
+      type: z.literal("PBOQ_BUILD_PROOF"),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    })
+    .optional(),
+  materialProofFile: z
+    .object({
+      type: z.literal("PBOQ_MATERIAL_PROOF"),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    })
+    .optional(),
+  wayleaveProofFile: z
+    .object({
+      type: z.literal("PBOQ_WAYLEAVE_PROOF"),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    })
+    .optional(),
 });
 
 export type FiberPlanningInput = z.infer<typeof fiberPlanningInputSchema>;
@@ -302,7 +346,7 @@ export type PboqCostLineRecord = {
   id: string;
   linkName: string;
   material: number;
-  labor: number;
+  build: number;
   wayleave: number;
   notes: string | null;
 };
@@ -323,6 +367,14 @@ export type PboqRequestRecord = {
 
 export type ProjectRecord = ProjectInput & {
   id: string;
+  siteName: string;
+  siteCoordinates: string;
+  requiredService: Exclude<DbRequiredService, null> | "Unspecified";
+  capacity: string;
+  salesRequestor: string;
+  leadNetworkPlanner: string;
+  dateRequested: string;
+  designPlanDate: string | null;
   solutionArchitectureName: string;
   solutionEngineerName: string;
   opportunityMrr: number;
@@ -468,7 +520,7 @@ async function getOpportunityPboqRequest(
       id: line.id,
       linkName: line.linkName,
       material: dbNumber(line.material),
-      labor: dbNumber(line.labor),
+      build: dbNumber(line.build),
       wayleave: dbNumber(line.wayleave),
       notes: line.notes,
     })),
@@ -552,7 +604,7 @@ async function toProjectRecord(
 
   const pboqBudget =
     pboqRequest?.costLines.reduce(
-      (total, line) => total + line.material + line.labor + line.wayleave,
+      (total, line) => total + line.material + line.build + line.wayleave,
       0,
     ) ?? 0;
   const approvedBudget = businessCase
@@ -570,6 +622,14 @@ async function toProjectRecord(
     id: opportunity.reference,
     customer: opportunity.customerName,
     title: opportunity.opportunityName,
+    siteName: opportunity.siteName ?? opportunity.opportunityName,
+    siteCoordinates: opportunity.siteCoordinates ?? "",
+    requiredService: opportunity.requiredService ?? "Unspecified",
+    capacity: opportunity.capacity ?? "",
+    salesRequestor: opportunity.salesRequestor ?? accountManager?.name ?? "Unassigned",
+    leadNetworkPlanner: opportunity.leadNetworkPlanner ?? "Unassigned",
+    dateRequested: opportunity.requestedDate.toISOString(),
+    designPlanDate: opportunity.designPlanDate?.toISOString() ?? null,
     region: opportunity.region,
     owner: accountManager?.name ?? "Unassigned",
     solutionArchitectureName: businessCase?.solutionArchitectureName ?? "Unassigned",
@@ -816,7 +876,13 @@ export async function createPboqRequest(input: PboqRequestInput) {
     .values({
       reference: validated.opportunityNumber,
       customerName: validated.customerName,
-      opportunityName: validated.opportunityName,
+      opportunityName: validated.siteName,
+      siteName: validated.siteName,
+      siteCoordinates: validated.siteCoordinates,
+      requiredService: validated.requiredService,
+      capacity: validated.capacity,
+      salesRequestor: validated.salesRequestor,
+      leadNetworkPlanner: validated.leadNetworkPlanner,
       region: validated.region,
       segment: validated.segment,
       mrr: toNumeric(validated.mrr),
@@ -825,6 +891,8 @@ export async function createPboqRequest(input: PboqRequestInput) {
       accountManagerId: accountManager.id,
       status: nextStatus,
       priority: "Normal",
+      requestedDate: new Date(validated.dateRequested),
+      designPlanDate: new Date(validated.designPlanDate),
     })
     .returning();
 
@@ -924,6 +992,12 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
   if (!pboqRequest) {
     throw new Error("Project has no PBOQ request.");
   }
+  if (
+    opportunity.status !== statusToDb["PBOQ Request Submitted"] &&
+    opportunity.status !== statusToDb["Fiber Planning Generates Costs"]
+  ) {
+    throw new Error("Project is not in a Fiber Planning stage.");
+  }
 
   const assignment = await completeLatestAssignment(opportunity.id);
   const actorRole = assignment?.role ?? roleToDb["Fiber Planning Team"];
@@ -931,7 +1005,7 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     assignment?.assigneeId ??
     (await findOrCreateUser("Fiber Planning Team", "Fiber Planning Team")).id;
   const totalCost = validated.lines.reduce(
-    (total, line) => total + line.material + line.labor + line.wayleave,
+    (total, line) => total + line.material + line.build + line.wayleave,
     0,
   );
 
@@ -941,21 +1015,39 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
       pboqRequestId: pboqRequest.id,
       linkName: line.linkName,
       material: toNumeric(line.material),
-      labor: toNumeric(line.labor),
+      build: toNumeric(line.build),
       wayleave: toNumeric(line.wayleave),
       notes: line.notes || null,
     })),
   );
 
-  await db.insert(documents).values({
-    opportunityId: opportunity.id,
-    uploadedById: actor,
-    type: "PBOQ",
-    name: validated.pboqFile.name,
-    storageKey: validated.pboqFile.storageKey,
-    mimeType: validated.pboqFile.mimeType,
-    sizeBytes: validated.pboqFile.sizeBytes,
-  });
+  const proofDocuments = [
+    validated.summaryProofFile,
+    validated.buildProofFile,
+    validated.materialProofFile,
+    validated.wayleaveProofFile,
+  ].filter((attachment) => attachment != null);
+
+  await db.insert(documents).values([
+    {
+      opportunityId: opportunity.id,
+      uploadedById: actor,
+      type: "PBOQ",
+      name: validated.pboqFile.name,
+      storageKey: validated.pboqFile.storageKey,
+      mimeType: validated.pboqFile.mimeType,
+      sizeBytes: validated.pboqFile.sizeBytes,
+    },
+    ...proofDocuments.map((attachment) => ({
+      opportunityId: opportunity.id,
+      uploadedById: actor,
+      type: attachment.type,
+      name: attachment.name,
+      storageKey: attachment.storageKey,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+    })),
+  ]);
 
   const [updatedOpportunity] = await db
     .update(opportunities)
@@ -1007,6 +1099,7 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     metadata: {
       lineCount: validated.lines.length,
       totalCost,
+      proofDocuments: proofDocuments.length,
       nextRole: "Account Manager",
     },
   });
@@ -1115,7 +1208,7 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
         businessCaseId: businessCase.id,
         linkName: line.linkName,
         material: toNumeric(line.material),
-        labor: toNumeric(line.labor),
+        labor: toNumeric(line.build),
         wayleave: toNumeric(line.wayleave),
         mrr: toNumeric(perLinkMrr),
         mrc: "0",

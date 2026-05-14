@@ -24,6 +24,7 @@ export default async function ProjectsPage({
   const badgeLabel = roleRoute?.role ?? "Admin";
   const dashboardHref = roleRoute ? roleRoute.href : "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
+  const canCreateProject = roleRoute?.role !== "Fiber Planning Team";
 
   return (
     <AdminShell
@@ -40,12 +41,14 @@ export default async function ProjectsPage({
         title="Projects"
         subtitle="Create, read, update, and delete workflow projects."
         action={
-          <Button asChild>
-            <Link href="/projects/new">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New Project
-            </Link>
-          </Button>
+          canCreateProject ? (
+            <Button asChild>
+              <Link href="/projects/new">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New Project
+              </Link>
+            </Button>
+          ) : null
         }
       />
       <div className="space-y-4 px-6 pb-8 pt-6">
@@ -139,9 +142,13 @@ export default async function ProjectsPage({
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
                   {projects.map((project) => (
+                    // Fiber Planning projects are updated via the Fiber Planning form, not generic edit.
                     <tr key={project.id} className="hover:bg-[color:var(--color-surface-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-medium">{project.customer}</p>
+                        <p className="mt-1 text-xs text-[color:var(--color-muted-strong)]">
+                          {project.siteName} · {project.requiredService}
+                        </p>
                         <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.createdAt}</td>
@@ -172,12 +179,14 @@ export default async function ProjectsPage({
                               View
                             </Link>
                           </Button>
-                          <Button asChild size="sm" variant="secondary">
-                            <Link href={`/projects/${project.id}/edit`}>
-                              <Pencil className="h-4 w-4" aria-hidden="true" />
-                              Edit
-                            </Link>
-                          </Button>
+                          {project.roleQueue !== "Fiber Planning Team" ? (
+                            <Button asChild size="sm" variant="secondary">
+                              <Link href={`/projects/${project.id}/edit`}>
+                                <Pencil className="h-4 w-4" aria-hidden="true" />
+                                Edit
+                              </Link>
+                            </Button>
+                          ) : null}
                           <Button asChild size="sm" variant="warning">
                             <Link href={`/projects/${project.id}/delete`}>
                               <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -215,6 +224,9 @@ export default async function ProjectsPage({
                     <tr key={project.id} className="hover:bg-[color:var(--color-surface-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-medium">{project.customer}</p>
+                        <p className="mt-1 text-xs text-[color:var(--color-muted-strong)]">
+                          {project.siteName} · {project.requiredService}
+                        </p>
                         <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.state}</td>

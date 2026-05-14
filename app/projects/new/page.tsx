@@ -28,8 +28,8 @@ export default async function NewProjectPage() {
       projectsHref={accountManagerProjectsHref}
     >
       <ShellHeading
-        title="Account Manager PBOQ Request"
-        subtitle="Create the opportunity, attach Solution Design, and send the request to Fiber Planning."
+        title="Account Manager Project Start Form"
+        subtitle="Capture project kickoff details and route the request for PBOQ handling."
         action={
           <Button asChild variant="secondary" size="sm">
             <Link href={accountManagerProjectsHref}>

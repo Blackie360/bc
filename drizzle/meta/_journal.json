@@ -29,6 +29,20 @@
       "when": 1778655771482,
       "tag": "0003_square_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778738409267,
+      "tag": "0004_needy_paladin",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778740988732,
+      "tag": "0005_fiber_planning_guardrails",
+      "breakpoints": true
     }
   ]
 }

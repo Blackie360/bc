@@ -63,6 +63,12 @@ export const pboqCostSource = pgEnum("PboqCostSource", [
   "PBOQ_ESTIMATE",
 ]);
 
+export const requiredService = pgEnum("RequiredService", [
+  "EPL",
+  "DIA",
+  "DFA",
+]);
+
 export const approvalAction = pgEnum("ApprovalAction", [
   "SUBMIT",
   "APPROVE",
@@ -78,6 +84,10 @@ export const approvalAction = pgEnum("ApprovalAction", [
 export const documentType = pgEnum("DocumentType", [
   "SOLUTION_DESIGN",
   "PBOQ",
+  "PBOQ_SUMMARY_PROOF",
+  "PBOQ_BUILD_PROOF",
+  "PBOQ_MATERIAL_PROOF",
+  "PBOQ_WAYLEAVE_PROOF",
   "BC_TEMPLATE",
   "BUSINESS_CASE",
   "SITE_ACQUISITION",
@@ -104,6 +114,12 @@ export const opportunities = pgTable("Opportunity", {
   reference: text("reference").notNull().unique(),
   customerName: text("customerName").notNull(),
   opportunityName: text("opportunityName").notNull(),
+  siteName: text("siteName"),
+  siteCoordinates: text("siteCoordinates"),
+  requiredService: requiredService("requiredService"),
+  capacity: text("capacity"),
+  salesRequestor: text("salesRequestor"),
+  leadNetworkPlanner: text("leadNetworkPlanner"),
   region: text("region").notNull(),
   segment: text("segment").notNull(),
   mrr: numeric("mrr", { precision: 14, scale: 2 }).default("0").notNull(),
@@ -115,6 +131,7 @@ export const opportunities = pgTable("Opportunity", {
   status: opportunityStatus("status").default("OPPORTUNITY_CREATED").notNull(),
   priority: text("priority").default("Normal").notNull(),
   requestedDate: timestamp("requestedDate", { mode: "date" }).defaultNow().notNull(),
+  designPlanDate: timestamp("designPlanDate", { mode: "date" }),
   targetInstallDate: timestamp("targetInstallDate", { mode: "date" }),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow().notNull(),
@@ -146,7 +163,7 @@ export const pboqCostLines = pgTable("PboqCostLine", {
     .references(() => pboqRequests.id),
   linkName: text("linkName").notNull(),
   material: numeric("material", { precision: 14, scale: 2 }).notNull(),
-  labor: numeric("labor", { precision: 14, scale: 2 }).notNull(),
+  build: numeric("build", { precision: 14, scale: 2 }).notNull(),
   wayleave: numeric("wayleave", { precision: 14, scale: 2 }).notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),

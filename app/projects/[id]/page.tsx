@@ -37,6 +37,16 @@ function money(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function shortDate(value: string | null) {
+  if (!value) return "Not set";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
 function FinanceDecisionForm({
   action,
   decision,
@@ -86,6 +96,7 @@ export default async function ProjectDetailPage({
   const prepareBcAction = prepareBusinessCaseFromPboqAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
   const isFiberPlanningStage = project.roleQueue === "Fiber Planning Team";
+  const canEditProject = project.roleQueue !== "Fiber Planning Team";
   const isAccountManagerBcStage =
     project.roleQueue === "Account Manager" &&
     project.state === "Business Case Prepared" &&
@@ -118,12 +129,14 @@ export default async function ProjectDetailPage({
                 Projects
               </Link>
             </Button>
-            <Button asChild size="sm">
-              <Link href={`/projects/${project.id}/edit`}>
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-                Edit Project
-              </Link>
-            </Button>
+            {canEditProject ? (
+              <Button asChild size="sm">
+                <Link href={`/projects/${project.id}/edit`}>
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                  Edit Project
+                </Link>
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -174,6 +187,14 @@ export default async function ProjectDetailPage({
           <CardContent className="grid gap-4 p-4 md:grid-cols-3">
             {[
               ["Title", project.title],
+              ["Site Name", project.siteName],
+              ["Site Coordinates", project.siteCoordinates],
+              ["Required Service", project.requiredService],
+              ["Capacity", project.capacity],
+              ["Date Requested", shortDate(project.dateRequested)],
+              ["Sales Requestor", project.salesRequestor],
+              ["Lead Network Planner", project.leadNetworkPlanner],
+              ["Design & Plan Date", shortDate(project.designPlanDate)],
               ["Region", project.region],
               ["Owner", project.owner],
               ["Opportunity MRR", money(project.opportunityMrr)],
@@ -240,7 +261,7 @@ export default async function ProjectDetailPage({
             <div>
               <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Fiber Planning</h2>
               <p className="text-sm text-[color:var(--color-muted)]">
-                Generate the PBOQ cost pack with material, labor, and wayleave costs.
+                Generate the PBOQ cost pack with build, material, and wayleave costs.
               </p>
             </div>
             <FiberPlanningForm action={fiberPlanningAction} />
@@ -346,7 +367,7 @@ export default async function ProjectDetailPage({
                 <table className="w-full min-w-[720px] text-left text-sm">
                   <thead className="border-b border-[color:var(--color-border)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
                     <tr>
-                      {["Link", "Material", "Labor", "Wayleave", "Notes"].map((label) => (
+                      {["Link", "Build", "Material", "Wayleave", "Notes"].map((label) => (
                         <th key={label} className="px-3 py-3 font-medium">{label}</th>
                       ))}
                     </tr>
@@ -355,8 +376,8 @@ export default async function ProjectDetailPage({
                     {project.pboqRequest?.costLines.map((line) => (
                       <tr key={line.id}>
                         <td className="px-3 py-3 font-medium">{line.linkName}</td>
+                        <td className="px-3 py-3">{money(line.build)}</td>
                         <td className="px-3 py-3">{money(line.material)}</td>
-                        <td className="px-3 py-3">{money(line.labor)}</td>
                         <td className="px-3 py-3">{money(line.wayleave)}</td>
                         <td className="px-3 py-3">{line.notes || "-"}</td>
                       </tr>

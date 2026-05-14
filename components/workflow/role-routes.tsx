@@ -268,6 +268,7 @@ export function RoleRoutePage({
   role: Role;
   projects: ProjectRecord[];
 }) {
+  const canCreateProject = role !== "Fiber Planning Team";
   const route = roleRoutes.find((item) => item.role === role);
   const queuedCases = projects.filter((item) => item.roleQueue === role);
   const activeRoute = route?.transitions[0];
@@ -298,12 +299,14 @@ export function RoleRoutePage({
         title={`${role} - Assigned Projects`}
         subtitle="Review the work currently routed to this role."
         action={
-          <Button asChild size="sm">
-            <Link href="/projects/new">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New Project
-            </Link>
-          </Button>
+          canCreateProject ? (
+            <Button asChild size="sm">
+              <Link href="/projects/new">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New Project
+              </Link>
+            </Button>
+          ) : null
         }
       />
       <div className="space-y-5 px-6 pb-8 pt-6">
