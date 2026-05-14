@@ -132,8 +132,21 @@ export function PboqRequestForm({
           <Field label="Date Requested">
             <Input name="dateRequested" type="date" defaultValue={todayDate} required />
           </Field>
-          <Field label="Customer Name">
+          <Field label="Client">
             <Input name="customerName" required />
+          </Field>
+          <Field label="MRR">
+            <Input name="mrr" type="number" inputMode="decimal" min="0" step="0.01" required />
+          </Field>
+          <Field label="NRR">
+            <Input name="nrr" type="number" inputMode="decimal" min="0" step="0.01" required />
+          </Field>
+          <Field label="Contract Term">
+            <Select name="contractTermMonths" defaultValue="12">
+              <option value="12">12 months</option>
+              <option value="24">24 months</option>
+              <option value="36">36 months</option>
+            </Select>
           </Field>
           <Field label="Site Name">
             <Input name="siteName" required />
