@@ -38,6 +38,59 @@ type DbDocumentType = (typeof documents.$inferSelect)["type"];
 type DbPboqCostSource = (typeof pboqRequests.$inferSelect)["costSource"];
 type DbRequiredService = (typeof opportunities.$inferSelect)["requiredService"];
 
+function createId() {
+  return randomUUID();
+}
+
+async function selectOpportunityById(db: ReturnType<typeof getDb>, id: string) {
+  const [row] = await db.select().from(opportunities).where(eq(opportunities.id, id)).limit(1);
+
+  if (!row) {
+    throw new Error("Opportunity not found.");
+  }
+
+  return row;
+}
+
+async function selectBusinessCaseById(db: ReturnType<typeof getDb>, id: string) {
+  const [row] = await db.select().from(businessCases).where(eq(businessCases.id, id)).limit(1);
+
+  if (!row) {
+    throw new Error("Business case not found.");
+  }
+
+  return row;
+}
+
+async function selectDocumentById(db: ReturnType<typeof getDb>, id: string) {
+  const [row] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+
+  if (!row) {
+    throw new Error("Document not found.");
+  }
+
+  return row;
+}
+
+async function selectPboqRequestById(db: ReturnType<typeof getDb>, id: string) {
+  const [row] = await db.select().from(pboqRequests).where(eq(pboqRequests.id, id)).limit(1);
+
+  if (!row) {
+    throw new Error("PBOQ request not found.");
+  }
+
+  return row;
+}
+
+async function insertDocument(
+  db: ReturnType<typeof getDb>,
+  values: typeof documents.$inferInsert,
+) {
+  const id = values.id ?? createId();
+  await db.insert(documents).values({ ...values, id });
+  return selectDocumentById(db, id);
+}
+
 const roleToDb: Record<Role, DbRole> = {
   "Account Manager": "ACCOUNT_MANAGER",
   "Fiber Planning Team": "FIBER_PLANNING",
@@ -428,14 +481,16 @@ async function findOrCreateUser(name: string, role: Role) {
     return existing;
   }
 
-  const [created] = await db
-    .insert(users)
-    .values({
-      name,
-      email,
-      role: roleToDb[role],
-    })
-    .returning();
+  await db.insert(users).values({
+    name,
+    email,
+    role: roleToDb[role],
+  });
+  const [created] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+
+  if (!created) {
+    throw new Error("Failed to create user.");
+  }
 
   return created;
 }
@@ -678,25 +733,24 @@ async function insertBusinessCase(opportunityId: string, input: ProjectInput, ve
     subsidyRequirement: input.subsidy,
     capex: input.capex,
   });
-  const [businessCase] = await db
-    .insert(businessCases)
-    .values({
-      opportunityId,
-      version,
-      type: typeToDb[input.type],
-      irr: toNumeric(input.irr),
-      paybackMonths: input.payback,
-      capex: toNumeric(input.capex),
-      subsidyRequirement: toNumeric(input.subsidy),
-      approvedBudget: toNumeric(input.approvedBudget),
-      decisionOutput: decisionToDb[decision.decision],
-      requiresCfo: decision.requiresCfo,
-      subsidyDisclosed: input.subsidy > 0,
-      submittedAt: new Date(),
-    })
-    .returning();
+  const businessCaseId = createId();
+  await db.insert(businessCases).values({
+    id: businessCaseId,
+    opportunityId,
+    version,
+    type: typeToDb[input.type],
+    irr: toNumeric(input.irr),
+    paybackMonths: input.payback,
+    capex: toNumeric(input.capex),
+    subsidyRequirement: toNumeric(input.subsidy),
+    approvedBudget: toNumeric(input.approvedBudget),
+    decisionOutput: decisionToDb[decision.decision],
+    requiresCfo: decision.requiresCfo,
+    subsidyDisclosed: input.subsidy > 0,
+    submittedAt: new Date(),
+  });
 
-  return businessCase;
+  return selectBusinessCaseById(db, businessCaseId);
 }
 
 async function insertActuals(
@@ -871,61 +925,58 @@ export async function createPboqRequest(input: PboqRequestInput) {
     throw new Error("Opportunity number already exists.");
   }
 
-  const [opportunity] = await db
-    .insert(opportunities)
-    .values({
-      reference: validated.opportunityNumber,
-      customerName: validated.customerName,
-      opportunityName: validated.siteName,
-      siteName: validated.siteName,
-      siteCoordinates: validated.siteCoordinates,
-      requiredService: validated.requiredService,
-      capacity: validated.capacity,
-      salesRequestor: validated.salesRequestor,
-      leadNetworkPlanner: validated.leadNetworkPlanner,
-      region: validated.region,
-      segment: validated.segment,
-      mrr: toNumeric(validated.mrr),
-      nrr: toNumeric(validated.nrr),
-      contractTermMonths: validated.contractTermMonths,
-      accountManagerId: accountManager.id,
-      status: nextStatus,
-      priority: "Normal",
-      requestedDate: new Date(validated.dateRequested),
-      designPlanDate: new Date(validated.designPlanDate),
-    })
-    .returning();
+  const opportunityId = createId();
+  await db.insert(opportunities).values({
+    id: opportunityId,
+    reference: validated.opportunityNumber,
+    customerName: validated.customerName,
+    opportunityName: validated.siteName,
+    siteName: validated.siteName,
+    siteCoordinates: validated.siteCoordinates,
+    requiredService: validated.requiredService,
+    capacity: validated.capacity,
+    salesRequestor: validated.salesRequestor,
+    leadNetworkPlanner: validated.leadNetworkPlanner,
+    region: validated.region,
+    segment: validated.segment,
+    mrr: toNumeric(validated.mrr),
+    nrr: toNumeric(validated.nrr),
+    contractTermMonths: validated.contractTermMonths,
+    accountManagerId: accountManager.id,
+    status: nextStatus,
+    priority: "Normal",
+    requestedDate: new Date(validated.dateRequested),
+    designPlanDate: new Date(validated.designPlanDate),
+  });
+  const opportunity = await selectOpportunityById(db, opportunityId);
 
-  const [pboqAttachment] = validated.pboqAttachment
-    ? await db
-        .insert(documents)
-        .values({
-          opportunityId: opportunity.id,
-          uploadedById: accountManager.id,
-          type: "PBOQ",
-          name: validated.pboqAttachment.name,
-          storageKey: validated.pboqAttachment.storageKey,
-          mimeType: validated.pboqAttachment.mimeType,
-          sizeBytes: validated.pboqAttachment.sizeBytes,
-        })
-        .returning()
-    : [];
+  const pboqAttachment = validated.pboqAttachment
+    ? await insertDocument(db, {
+        opportunityId: opportunity.id,
+        uploadedById: accountManager.id,
+        type: "PBOQ",
+        name: validated.pboqAttachment.name,
+        storageKey: validated.pboqAttachment.storageKey,
+        mimeType: validated.pboqAttachment.mimeType,
+        sizeBytes: validated.pboqAttachment.sizeBytes,
+      })
+    : null;
 
-  const [pboqRequest] = await db
-    .insert(pboqRequests)
-    .values({
-      opportunityId: opportunity.id,
-      solutionDesignDocumentId: null,
-      siteCount: validated.siteCount,
-      routeDistanceKm: toNumeric(validated.routeDistanceKm),
-      surveyBudget: toNumeric(validated.surveyAvailable ? validated.actualSurveyCost : 0),
-      surveyAvailable: validated.surveyAvailable,
-      costSource: validated.surveyAvailable ? "ACTUAL_SURVEY" : "PBOQ_ESTIMATE",
-      actualSurveyCost: toNumeric(validated.actualSurveyCost),
-      notes: validated.notes || null,
-      completedAt: hasExistingPboq ? new Date() : null,
-    })
-    .returning();
+  const pboqRequestId = createId();
+  await db.insert(pboqRequests).values({
+    id: pboqRequestId,
+    opportunityId: opportunity.id,
+    solutionDesignDocumentId: null,
+    siteCount: validated.siteCount,
+    routeDistanceKm: toNumeric(validated.routeDistanceKm),
+    surveyBudget: toNumeric(validated.surveyAvailable ? validated.actualSurveyCost : 0),
+    surveyAvailable: validated.surveyAvailable,
+    costSource: validated.surveyAvailable ? "ACTUAL_SURVEY" : "PBOQ_ESTIMATE",
+    actualSurveyCost: toNumeric(validated.actualSurveyCost),
+    notes: validated.notes || null,
+    completedAt: hasExistingPboq ? new Date() : null,
+  });
+  const pboqRequest = await selectPboqRequestById(db, pboqRequestId);
 
   await db.insert(workflowAssignments).values({
     opportunityId: opportunity.id,
@@ -1049,14 +1100,14 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     })),
   ]);
 
-  const [updatedOpportunity] = await db
+  await db
     .update(opportunities)
     .set({
       status: statusToDb["Business Case Prepared"],
       updatedAt: new Date(),
     })
-    .where(eq(opportunities.id, opportunity.id))
-    .returning();
+    .where(eq(opportunities.id, opportunity.id));
+  const updatedOpportunity = await selectOpportunityById(db, opportunity.id);
 
   await db
     .update(pboqRequests)
@@ -1149,41 +1200,38 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
   });
   const latestBusinessCase = await getLatestBusinessCase(opportunity.id);
 
-  const [businessCase] = await db
-    .insert(businessCases)
-    .values({
-      opportunityId: opportunity.id,
-      version: (latestBusinessCase?.version ?? 0) + 1,
-      type: typeToDb[validated.type],
-      solutionArchitectureName: validated.solutionArchitectureName,
-      solutionEngineerName: validated.solutionEngineerName,
-      irr: toNumeric(validated.irr),
-      paybackMonths: validated.payback,
-      capex: toNumeric(validated.capex),
-      subsidyRequirement: toNumeric(validated.subsidy),
-      approvedBudget: toNumeric(validated.approvedBudget),
-      decisionOutput: decisionToDb[decision.decision],
-      requiresCfo: decision.requiresCfo,
-      subsidyDisclosed: decision.decision === "PROCEED WITH SUBSIDY DISCLOSURE",
-      submittedAt: new Date(),
-      approvedAt: route.autoApproved ? new Date() : null,
-    })
-    .returning();
+  const businessCaseId = createId();
+  await db.insert(businessCases).values({
+    id: businessCaseId,
+    opportunityId: opportunity.id,
+    version: (latestBusinessCase?.version ?? 0) + 1,
+    type: typeToDb[validated.type],
+    solutionArchitectureName: validated.solutionArchitectureName,
+    solutionEngineerName: validated.solutionEngineerName,
+    irr: toNumeric(validated.irr),
+    paybackMonths: validated.payback,
+    capex: toNumeric(validated.capex),
+    subsidyRequirement: toNumeric(validated.subsidy),
+    approvedBudget: toNumeric(validated.approvedBudget),
+    decisionOutput: decisionToDb[decision.decision],
+    requiresCfo: decision.requiresCfo,
+    subsidyDisclosed: decision.decision === "PROCEED WITH SUBSIDY DISCLOSURE",
+    submittedAt: new Date(),
+    approvedAt: route.autoApproved ? new Date() : null,
+  });
+  const businessCase = await selectBusinessCaseById(db, businessCaseId);
 
   const createdDocuments = await Promise.all(
     [validated.bcTemplate, validated.orderForm].map((attachment) =>
-      db
-        .insert(documents)
-        .values({
-          opportunityId: opportunity.id,
-          uploadedById: actor,
-          type: attachment.type,
-          name: attachment.name,
-          storageKey: attachment.storageKey,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-        })
-        .returning(),
+      insertDocument(db, {
+        opportunityId: opportunity.id,
+        uploadedById: actor,
+        type: attachment.type,
+        name: attachment.name,
+        storageKey: attachment.storageKey,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      }),
     ),
   );
 
@@ -1192,7 +1240,7 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
     .from(documents)
     .where(and(eq(documents.opportunityId, opportunity.id), eq(documents.type, "PBOQ")))
     .limit(1);
-  const pboqDocumentId = pboqDocuments[0]?.id ?? createdDocuments[0][0].id;
+  const pboqDocumentId = pboqDocuments[0]?.id ?? createdDocuments[0]?.id;
   const perLinkMrr =
     pboqRequest.costLines.length === 0
       ? 0
@@ -1219,14 +1267,14 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
     );
   }
 
-  const [updatedOpportunity] = await db
+  await db
     .update(opportunities)
     .set({
       status: route.status,
       updatedAt: new Date(),
     })
-    .where(eq(opportunities.id, opportunity.id))
-    .returning();
+    .where(eq(opportunities.id, opportunity.id));
+  const updatedOpportunity = await selectOpportunityById(db, opportunity.id);
 
   await assignWorkflow(opportunity.id, route.role, route.role, route.status);
 
@@ -1297,61 +1345,58 @@ export async function createBcSubmission(input: BcSubmissionInput) {
     throw new Error("Opportunity number already exists.");
   }
 
-  const [opportunity] = await db
-    .insert(opportunities)
-    .values({
-      reference: validated.opportunityNumber,
-      customerName: validated.customerName,
-      opportunityName: `${validated.customerName} BC submission`,
-      region: validated.region,
-      segment: "Enterprise",
-      mrr: toNumeric(validated.links.reduce((total, link) => total + link.mrr, 0)),
-      nrr: toNumeric(validated.links.reduce((total, link) => total + link.nrr, 0)),
-      contractTermMonths: 12,
-      accountManagerId: accountManager.id,
-      status: route.status,
-      priority: "Normal",
-    })
-    .returning();
+  const opportunityId = createId();
+  await db.insert(opportunities).values({
+    id: opportunityId,
+    reference: validated.opportunityNumber,
+    customerName: validated.customerName,
+    opportunityName: `${validated.customerName} BC submission`,
+    region: validated.region,
+    segment: "Enterprise",
+    mrr: toNumeric(validated.links.reduce((total, link) => total + link.mrr, 0)),
+    nrr: toNumeric(validated.links.reduce((total, link) => total + link.nrr, 0)),
+    contractTermMonths: 12,
+    accountManagerId: accountManager.id,
+    status: route.status,
+    priority: "Normal",
+  });
+  const opportunity = await selectOpportunityById(db, opportunityId);
 
-  const [businessCase] = await db
-    .insert(businessCases)
-    .values({
-      opportunityId: opportunity.id,
-      version: 1,
-      type: typeToDb[validated.type],
-      solutionArchitectureName: validated.solutionArchitectureName,
-      solutionEngineerName: validated.solutionEngineerName,
-      irr: toNumeric(validated.irr),
-      paybackMonths: validated.payback,
-      capex: toNumeric(validated.capex),
-      subsidyRequirement: toNumeric(validated.subsidy),
-      approvedBudget: toNumeric(validated.approvedBudget),
-      decisionOutput: decisionToDb[decision.decision],
-      requiresCfo: decision.requiresCfo,
-      subsidyDisclosed: decision.decision === "PROCEED WITH SUBSIDY DISCLOSURE",
-      submittedAt: new Date(),
-      approvedAt: route.autoApproved ? new Date() : null,
-    })
-    .returning();
+  const businessCaseId = createId();
+  await db.insert(businessCases).values({
+    id: businessCaseId,
+    opportunityId: opportunity.id,
+    version: 1,
+    type: typeToDb[validated.type],
+    solutionArchitectureName: validated.solutionArchitectureName,
+    solutionEngineerName: validated.solutionEngineerName,
+    irr: toNumeric(validated.irr),
+    paybackMonths: validated.payback,
+    capex: toNumeric(validated.capex),
+    subsidyRequirement: toNumeric(validated.subsidy),
+    approvedBudget: toNumeric(validated.approvedBudget),
+    decisionOutput: decisionToDb[decision.decision],
+    requiresCfo: decision.requiresCfo,
+    subsidyDisclosed: decision.decision === "PROCEED WITH SUBSIDY DISCLOSURE",
+    submittedAt: new Date(),
+    approvedAt: route.autoApproved ? new Date() : null,
+  });
+  const businessCase = await selectBusinessCaseById(db, businessCaseId);
 
   const createdDocuments = await Promise.all(
     validated.attachments.map((attachment) =>
-      db
-        .insert(documents)
-        .values({
-          opportunityId: opportunity.id,
-          uploadedById: accountManager.id,
-          type: attachment.type,
-          name: attachment.name,
-          storageKey: attachment.storageKey,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-        })
-        .returning(),
+      insertDocument(db, {
+        opportunityId: opportunity.id,
+        uploadedById: accountManager.id,
+        type: attachment.type,
+        name: attachment.name,
+        storageKey: attachment.storageKey,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      }),
     ),
   );
-  const documentIds = createdDocuments.map(([document]) => document.id);
+  const documentIds = createdDocuments.map((document) => document.id);
 
   await db.insert(businessCaseLinks).values(
     validated.links.map((link) => ({
@@ -1447,57 +1492,54 @@ export async function createBcDraft(input: BcDraftInput) {
     subsidyRequirement: normalizedInput.subsidy,
     capex: normalizedInput.capex,
   });
-  const [opportunity] = await db
-    .insert(opportunities)
-    .values({
-      reference: opportunityReference,
-      customerName: normalizedInput.customerName,
-      opportunityName: `${normalizedInput.customerName} draft`,
-      region: normalizedInput.region,
-      segment: "Enterprise",
-      accountManagerId: accountManager.id,
-      status: "OPPORTUNITY_CREATED",
-      priority: "Normal",
-    })
-    .returning();
+  const opportunityId = createId();
+  await db.insert(opportunities).values({
+    id: opportunityId,
+    reference: opportunityReference,
+    customerName: normalizedInput.customerName,
+    opportunityName: `${normalizedInput.customerName} draft`,
+    region: normalizedInput.region,
+    segment: "Enterprise",
+    accountManagerId: accountManager.id,
+    status: "OPPORTUNITY_CREATED",
+    priority: "Normal",
+  });
+  const opportunity = await selectOpportunityById(db, opportunityId);
 
-  const [businessCase] = await db
-    .insert(businessCases)
-    .values({
-      opportunityId: opportunity.id,
-      version: 1,
-      type: typeToDb[normalizedInput.type],
-      solutionArchitectureName: normalizedInput.solutionArchitectureName,
-      solutionEngineerName: normalizedInput.solutionEngineerName,
-      irr: toNumeric(normalizedInput.irr),
-      paybackMonths: normalizedInput.payback,
-      capex: toNumeric(normalizedInput.capex),
-      subsidyRequirement: toNumeric(normalizedInput.subsidy),
-      approvedBudget: toNumeric(normalizedInput.approvedBudget),
-      decisionOutput: decisionToDb[decision.decision],
-      requiresCfo: decision.requiresCfo,
-      subsidyDisclosed: normalizedInput.subsidy > 0,
-      submittedAt: null,
-    })
-    .returning();
+  const businessCaseId = createId();
+  await db.insert(businessCases).values({
+    id: businessCaseId,
+    opportunityId: opportunity.id,
+    version: 1,
+    type: typeToDb[normalizedInput.type],
+    solutionArchitectureName: normalizedInput.solutionArchitectureName,
+    solutionEngineerName: normalizedInput.solutionEngineerName,
+    irr: toNumeric(normalizedInput.irr),
+    paybackMonths: normalizedInput.payback,
+    capex: toNumeric(normalizedInput.capex),
+    subsidyRequirement: toNumeric(normalizedInput.subsidy),
+    approvedBudget: toNumeric(normalizedInput.approvedBudget),
+    decisionOutput: decisionToDb[decision.decision],
+    requiresCfo: decision.requiresCfo,
+    subsidyDisclosed: normalizedInput.subsidy > 0,
+    submittedAt: null,
+  });
+  const businessCase = await selectBusinessCaseById(db, businessCaseId);
 
   const createdDocuments = await Promise.all(
     normalizedInput.attachments.map((attachment) =>
-      db
-        .insert(documents)
-        .values({
-          opportunityId: opportunity.id,
-          uploadedById: accountManager.id,
-          type: attachment.type,
-          name: attachment.name,
-          storageKey: attachment.storageKey,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-        })
-        .returning(),
+      insertDocument(db, {
+        opportunityId: opportunity.id,
+        uploadedById: accountManager.id,
+        type: attachment.type,
+        name: attachment.name,
+        storageKey: attachment.storageKey,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      }),
     ),
   );
-  const documentIds = createdDocuments.map(([document]) => document.id);
+  const documentIds = createdDocuments.map((document) => document.id);
 
   if (normalizedInput.links.length > 0) {
     await db.insert(businessCaseLinks).values(
@@ -1577,19 +1619,20 @@ export async function getProject(id: string) {
 export async function createProject(input: ProjectInput) {
   const db = getDb();
   const accountManager = await findOrCreateUser(input.owner, "Account Manager");
-  const [opportunity] = await db
-    .insert(opportunities)
-    .values({
-      reference: buildReference(),
-      customerName: input.customer,
-      opportunityName: input.title,
-      region: input.region,
-      segment: "Enterprise",
-      accountManagerId: accountManager.id,
-      status: statusToDb[input.state],
-      priority: "Normal",
-    })
-    .returning();
+  const opportunityId = createId();
+  const reference = buildReference();
+  await db.insert(opportunities).values({
+    id: opportunityId,
+    reference,
+    customerName: input.customer,
+    opportunityName: input.title,
+    region: input.region,
+    segment: "Enterprise",
+    accountManagerId: accountManager.id,
+    status: statusToDb[input.state],
+    priority: "Normal",
+  });
+  const opportunity = await selectOpportunityById(db, opportunityId);
   const businessCase = await insertBusinessCase(opportunity.id, input, 1);
 
   await insertActuals(opportunity.id, businessCase.id, input);
@@ -1618,7 +1661,7 @@ export async function updateProject(id: string, input: ProjectInput) {
 
   const accountManager = await findOrCreateUser(input.owner, "Account Manager");
   const latestBusinessCase = await getLatestBusinessCase(existing.id);
-  const [opportunity] = await db
+  await db
     .update(opportunities)
     .set({
       customerName: input.customer,
@@ -1628,8 +1671,8 @@ export async function updateProject(id: string, input: ProjectInput) {
       status: statusToDb[input.state],
       updatedAt: new Date(),
     })
-    .where(eq(opportunities.id, existing.id))
-    .returning();
+    .where(eq(opportunities.id, existing.id));
+  const opportunity = await selectOpportunityById(db, existing.id);
   const businessCase = await insertBusinessCase(
     existing.id,
     input,
@@ -1684,14 +1727,14 @@ export async function decideFinanceWorkflow(
       .where(eq(workflowAssignments.id, assignment.id));
   }
 
-  const [opportunity] = await db
+  await db
     .update(opportunities)
     .set({
       status: route.status,
       updatedAt: new Date(),
     })
-    .where(eq(opportunities.id, existing.id))
-    .returning();
+    .where(eq(opportunities.id, existing.id));
+  const opportunity = await selectOpportunityById(db, existing.id);
 
   if (decision === "approve") {
     await db
@@ -1783,14 +1826,14 @@ export async function advanceProjectToNextStage(id: string) {
       .where(eq(workflowAssignments.id, assignment.id));
   }
 
-  const [opportunity] = await db
+  await db
     .update(opportunities)
     .set({
       status: nextStatus,
       updatedAt: new Date(),
     })
-    .where(eq(opportunities.id, existing.id))
-    .returning();
+    .where(eq(opportunities.id, existing.id));
+  const opportunity = await selectOpportunityById(db, existing.id);
 
   await assignWorkflow(existing.id, nextRole, assigneeNameForRole(nextRole, project), nextStatus);
 

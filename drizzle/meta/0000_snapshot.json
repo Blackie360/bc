@@ -1,85 +1,96 @@
 {
-  "id": "c6f595dc-48e7-4b5c-b056-4bbe85a35636",
+  "version": "5",
+  "dialect": "mysql",
+  "id": "33285494-ef9f-40fd-ba66-4672cd2fa47d",
   "prevId": "00000000-0000-0000-0000-000000000000",
-  "version": "7",
-  "dialect": "postgresql",
   "tables": {
-    "public.ActualCostCapture": {
+    "ActualCostCapture": {
       "name": "ActualCostCapture",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "businessCaseId": {
           "name": "businessCaseId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "contractorName": {
           "name": "contractorName",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "approvedBudget": {
           "name": "approvedBudget",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "actualSpend": {
           "name": "actualSpend",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "surveyBudget": {
           "name": "surveyBudget",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "surveyActual": {
           "name": "surveyActual",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "varianceAmount": {
           "name": "varianceAmount",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "variancePercent": {
           "name": "variancePercent",
-          "type": "numeric(8, 2)",
+          "type": "decimal(8,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "surveyDeviationPct": {
           "name": "surveyDeviationPct",
-          "type": "numeric(8, 2)",
+          "type": "decimal(8,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "capturedAt": {
           "name": "capturedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -111,52 +122,62 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "ActualCostCapture_id": {
+          "name": "ActualCostCapture_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.ApprovalCertificate": {
+    "ApprovalCertificate": {
       "name": "ApprovalCertificate",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "businessCaseId": {
           "name": "businessCaseId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "certificateNo": {
           "name": "certificateNo",
-          "type": "text",
+          "type": "varchar(128)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "issuedAt": {
           "name": "issuedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         },
         "fileStorageKey": {
           "name": "fileStorageKey",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "checksum": {
           "name": "checksum",
-          "type": "text",
+          "type": "varchar(128)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -175,102 +196,110 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "ApprovalCertificate_id": {
+          "name": "ApprovalCertificate_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {
         "ApprovalCertificate_businessCaseId_unique": {
           "name": "ApprovalCertificate_businessCaseId_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "businessCaseId"
           ]
         },
         "ApprovalCertificate_certificateNo_unique": {
           "name": "ApprovalCertificate_certificateNo_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "certificateNo"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.ApprovalHistory": {
+    "ApprovalHistory": {
       "name": "ApprovalHistory",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "businessCaseId": {
           "name": "businessCaseId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "actorId": {
           "name": "actorId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "role": {
           "name": "role",
-          "type": "UserRole",
-          "typeSchema": "public",
+          "type": "enum('ACCOUNT_MANAGER','FIBER_PLANNING','SOLUTION_ARCHITECT','SOLUTION_ENGINEER','BC_ANALYST','CFO','SALES_OPERATIONS','SDU','SITE_ACQUISITION_MANAGER','PROJECT_MANAGER','CONTRACTOR')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "action": {
           "name": "action",
-          "type": "ApprovalAction",
-          "typeSchema": "public",
+          "type": "enum('SUBMIT','APPROVE','REJECT','REVERT','ESCALATE','VALIDATE','REQUEST_REVISION','CAPTURE_ACTUALS','GENERATE_CERTIFICATE')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "fromStatus": {
           "name": "fromStatus",
-          "type": "OpportunityStatus",
-          "typeSchema": "public",
+          "type": "enum('OPPORTUNITY_CREATED','PBOQ_REQUESTED','FIBER_PLANNING_COSTS','BUSINESS_CASE_PREPARED','FINANCIAL_METRICS_COMPUTED','APPROVAL_ROUTING','FINANCE_CFO_APPROVAL','SALES_OPERATIONS_VALIDATION','SDU_VALIDATION','SURVEY_SITE_ACQUISITION','CONTRACTOR_IMPLEMENTATION','ACTUAL_COST_CAPTURE','BUDGET_ACTUAL_ANALYSIS','PROJECT_CLOSURE_REPORTING','REVERTED','CANCELLED')",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "toStatus": {
           "name": "toStatus",
-          "type": "OpportunityStatus",
-          "typeSchema": "public",
+          "type": "enum('OPPORTUNITY_CREATED','PBOQ_REQUESTED','FIBER_PLANNING_COSTS','BUSINESS_CASE_PREPARED','FINANCIAL_METRICS_COMPUTED','APPROVAL_ROUTING','FINANCE_CFO_APPROVAL','SALES_OPERATIONS_VALIDATION','SDU_VALIDATION','SURVEY_SITE_ACQUISITION','CONTRACTOR_IMPLEMENTATION','ACTUAL_COST_CAPTURE','BUDGET_ACTUAL_ANALYSIS','PROJECT_CLOSURE_REPORTING','REVERTED','CANCELLED')",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "decision": {
           "name": "decision",
-          "type": "DecisionOutput",
-          "typeSchema": "public",
+          "type": "enum('PROCEED','SEEK_FINANCE_APPROVAL','PROCEED_WITH_SUBSIDY_DISCLOSURE')",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "notes": {
           "name": "notes",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -315,64 +344,76 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "ApprovalHistory_id": {
+          "name": "ApprovalHistory_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.AuditLog": {
+    "AuditLog": {
       "name": "AuditLog",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "actorId": {
           "name": "actorId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "event": {
           "name": "event",
-          "type": "text",
+          "type": "varchar(128)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "entityType": {
           "name": "entityType",
-          "type": "text",
+          "type": "varchar(128)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "entityId": {
           "name": "entityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "metadata": {
           "name": "metadata",
-          "type": "jsonb",
+          "type": "json",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -404,90 +445,249 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "AuditLog_id": {
+          "name": "AuditLog_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.BusinessCase": {
-      "name": "BusinessCase",
-      "schema": "",
+    "BusinessCaseLink": {
+      "name": "BusinessCaseLink",
       "columns": {
         "id": {
           "name": "id",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "businessCaseId": {
+          "name": "businessCaseId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "linkName": {
+          "name": "linkName",
           "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "material": {
+          "name": "material",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labor": {
+          "name": "labor",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "wayleave": {
+          "name": "wayleave",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mrr": {
+          "name": "mrr",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mrc": {
+          "name": "mrc",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "nrc": {
+          "name": "nrc",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "nrr": {
+          "name": "nrr",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evidenceDocumentId": {
+          "name": "evidenceDocumentId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "BusinessCaseLink_businessCaseId_BusinessCase_id_fk": {
+          "name": "BusinessCaseLink_businessCaseId_BusinessCase_id_fk",
+          "tableFrom": "BusinessCaseLink",
+          "tableTo": "BusinessCase",
+          "columnsFrom": [
+            "businessCaseId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "BusinessCaseLink_evidenceDocumentId_Document_id_fk": {
+          "name": "BusinessCaseLink_evidenceDocumentId_Document_id_fk",
+          "tableFrom": "BusinessCaseLink",
+          "tableTo": "Document",
+          "columnsFrom": [
+            "evidenceDocumentId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "BusinessCaseLink_id": {
+          "name": "BusinessCaseLink_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "BusinessCase": {
+      "name": "BusinessCase",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "version": {
           "name": "version",
-          "type": "integer",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": 1
         },
         "type": {
           "name": "type",
-          "type": "BusinessCaseType",
-          "typeSchema": "public",
+          "type": "enum('ORDINARY_BC','MARGIN_ANALYSIS_BC')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
+        },
+        "solutionArchitectureName": {
+          "name": "solutionArchitectureName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "('Unassigned')"
+        },
+        "solutionEngineerName": {
+          "name": "solutionEngineerName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "('Unassigned')"
         },
         "irr": {
           "name": "irr",
-          "type": "numeric(8, 2)",
+          "type": "decimal(8,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "paybackMonths": {
           "name": "paybackMonths",
-          "type": "integer",
+          "type": "int",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "capex": {
           "name": "capex",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "subsidyRequirement": {
           "name": "subsidyRequirement",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "approvedBudget": {
           "name": "approvedBudget",
-          "type": "numeric(14, 2)",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "grossMarginPercent": {
           "name": "grossMarginPercent",
-          "type": "numeric(8, 2)",
+          "type": "decimal(8,2)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "decisionOutput": {
           "name": "decisionOutput",
-          "type": "DecisionOutput",
-          "typeSchema": "public",
+          "type": "enum('PROCEED','SEEK_FINANCE_APPROVAL','PROCEED_WITH_SUBSIDY_DISCLOSURE')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "requiresCfo": {
           "name": "requiresCfo",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": false
         },
         "subsidyDisclosed": {
@@ -495,36 +695,50 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": false
         },
         "submittedAt": {
           "name": "submittedAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "approvedAt": {
           "name": "approvedAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         },
         "updatedAt": {
           "name": "updatedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "BusinessCase_opportunityId_version_unique": {
+          "name": "BusinessCase_opportunityId_version_unique",
+          "columns": [
+            "opportunityId",
+            "version"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "BusinessCase_opportunityId_Opportunity_id_fk": {
           "name": "BusinessCase_opportunityId_Opportunity_id_fk",
@@ -540,79 +754,82 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "BusinessCase_opportunityId_version_unique": {
-          "name": "BusinessCase_opportunityId_version_unique",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "BusinessCase_id": {
+          "name": "BusinessCase_id",
           "columns": [
-            "opportunityId",
-            "version"
+            "id"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "uniqueConstraints": {},
+      "checkConstraint": {}
     },
-    "public.Document": {
+    "Document": {
       "name": "Document",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "uploadedById": {
           "name": "uploadedById",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "type": {
           "name": "type",
-          "type": "DocumentType",
-          "typeSchema": "public",
+          "type": "enum('SOLUTION_DESIGN','PBOQ','PBOQ_SUMMARY_PROOF','PBOQ_BUILD_PROOF','PBOQ_MATERIAL_PROOF','PBOQ_WAYLEAVE_PROOF','BC_TEMPLATE','BUSINESS_CASE','SITE_ACQUISITION','SURVEY_REPORT','CONTRACTOR_QUOTE','ORDER_FORM','ACTUAL_SURVEY_QUOTE','BC_APPROVAL_CERTIFICATE','ACTUAL_COST_EVIDENCE')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "storageKey": {
           "name": "storageKey",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "mimeType": {
           "name": "mimeType",
-          "type": "text",
+          "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "sizeBytes": {
           "name": "sizeBytes",
-          "type": "integer",
+          "type": "int",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "version": {
           "name": "version",
-          "type": "integer",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": 1
         },
         "createdAt": {
@@ -620,7 +837,8 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -652,71 +870,149 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "Document_id": {
+          "name": "Document_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.Opportunity": {
+    "Opportunity": {
       "name": "Opportunity",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "reference": {
           "name": "reference",
-          "type": "text",
+          "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "customerName": {
           "name": "customerName",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityName": {
           "name": "opportunityName",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
+        },
+        "siteName": {
+          "name": "siteName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "siteCoordinates": {
+          "name": "siteCoordinates",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "requiredService": {
+          "name": "requiredService",
+          "type": "enum('EPL','DIA','DFA')",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "capacity": {
+          "name": "capacity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "salesRequestor": {
+          "name": "salesRequestor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "leadNetworkPlanner": {
+          "name": "leadNetworkPlanner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "region": {
           "name": "region",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "segment": {
           "name": "segment",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mrr": {
+          "name": "mrr",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0'"
+        },
+        "nrr": {
+          "name": "nrr",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0'"
+        },
+        "contractTermMonths": {
+          "name": "contractTermMonths",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 12
         },
         "accountManagerId": {
           "name": "accountManagerId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "status": {
           "name": "status",
-          "type": "OpportunityStatus",
-          "typeSchema": "public",
+          "type": "enum('OPPORTUNITY_CREATED','PBOQ_REQUESTED','FIBER_PLANNING_COSTS','BUSINESS_CASE_PREPARED','FINANCIAL_METRICS_COMPUTED','APPROVAL_ROUTING','FINANCE_CFO_APPROVAL','SALES_OPERATIONS_VALIDATION','SDU_VALIDATION','SURVEY_SITE_ACQUISITION','CONTRACTOR_IMPLEMENTATION','ACTUAL_COST_CAPTURE','BUDGET_ACTUAL_ANALYSIS','PROJECT_CLOSURE_REPORTING','REVERTED','CANCELLED')",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": "'OPPORTUNITY_CREATED'"
         },
         "priority": {
           "name": "priority",
-          "type": "text",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": "'Normal'"
         },
         "requestedDate": {
@@ -724,27 +1020,38 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "designPlanDate": {
+          "name": "designPlanDate",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "targetInstallDate": {
           "name": "targetInstallDate",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         },
         "updatedAt": {
           "name": "updatedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -763,78 +1070,209 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "Opportunity_id": {
+          "name": "Opportunity_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {
         "Opportunity_reference_unique": {
           "name": "Opportunity_reference_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "reference"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.PboqRequest": {
-      "name": "PboqRequest",
-      "schema": "",
+    "PboqCostLine": {
+      "name": "PboqCostLine",
       "columns": {
         "id": {
           "name": "id",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pboqRequestId": {
+          "name": "pboqRequestId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "linkName": {
+          "name": "linkName",
           "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "opportunityId": {
-          "name": "opportunityId",
-          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
-        "solutionDesignDocumentId": {
-          "name": "solutionDesignDocumentId",
-          "type": "text",
+        "material": {
+          "name": "material",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "autoincrement": false
         },
-        "siteCount": {
-          "name": "siteCount",
-          "type": "integer",
+        "build": {
+          "name": "build",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
-        "routeDistanceKm": {
-          "name": "routeDistanceKm",
-          "type": "numeric(10, 2)",
+        "wayleave": {
+          "name": "wayleave",
+          "type": "decimal(14,2)",
           "primaryKey": false,
-          "notNull": true
-        },
-        "surveyBudget": {
-          "name": "surveyBudget",
-          "type": "numeric(14, 2)",
-          "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "notes": {
           "name": "notes",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "PboqCostLine_pboqRequestId_PboqRequest_id_fk": {
+          "name": "PboqCostLine_pboqRequestId_PboqRequest_id_fk",
+          "tableFrom": "PboqCostLine",
+          "tableTo": "PboqRequest",
+          "columnsFrom": [
+            "pboqRequestId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "PboqCostLine_id": {
+          "name": "PboqCostLine_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "PboqRequest": {
+      "name": "PboqRequest",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opportunityId": {
+          "name": "opportunityId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "solutionDesignDocumentId": {
+          "name": "solutionDesignDocumentId",
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "siteCount": {
+          "name": "siteCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "routeDistanceKm": {
+          "name": "routeDistanceKm",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "surveyBudget": {
+          "name": "surveyBudget",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "surveyAvailable": {
+          "name": "surveyAvailable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "costSource": {
+          "name": "costSource",
+          "type": "enum('ACTUAL_SURVEY','PBOQ_ESTIMATE')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'PBOQ_ESTIMATE'"
+        },
+        "actualSurveyCost": {
+          "name": "actualSurveyCost",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0'"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fiberPlanningNotes": {
+          "name": "fiberPlanningNotes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "requestedAt": {
           "name": "requestedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         },
         "completedAt": {
           "name": "completedAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -853,78 +1291,90 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "PboqRequest_id": {
+          "name": "PboqRequest_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {
         "PboqRequest_opportunityId_unique": {
           "name": "PboqRequest_opportunityId_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "opportunityId"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.Revision": {
+    "Revision": {
       "name": "Revision",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "businessCaseId": {
           "name": "businessCaseId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "requestedById": {
           "name": "requestedById",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "reason": {
           "name": "reason",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "notes": {
           "name": "notes",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "revisionNumber": {
           "name": "revisionNumber",
-          "type": "integer",
+          "type": "int",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "resolvedAt": {
           "name": "resolvedAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -969,46 +1419,54 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "Revision_id": {
+          "name": "Revision_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.User": {
+    "User": {
       "name": "User",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "email": {
           "name": "email",
-          "type": "text",
+          "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "role": {
           "name": "role",
-          "type": "UserRole",
-          "typeSchema": "public",
+          "type": "enum('ACCOUNT_MANAGER','FIBER_PLANNING','SOLUTION_ARCHITECT','SOLUTION_ENGINEER','BC_ANALYST','CFO','SALES_OPERATIONS','SDU','SITE_ACQUISITION_MANAGER','PROJECT_MANAGER','CONTRACTOR')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "isActive": {
           "name": "isActive",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": true
         },
         "createdAt": {
@@ -1016,86 +1474,97 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         },
         "updatedAt": {
           "name": "updatedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "User_id": {
+          "name": "User_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {
         "User_email_unique": {
           "name": "User_email_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "email"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     },
-    "public.WorkflowAssignment": {
+    "WorkflowAssignment": {
       "name": "WorkflowAssignment",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
+          "type": "varchar(36)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "opportunityId": {
           "name": "opportunityId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "role": {
           "name": "role",
-          "type": "UserRole",
-          "typeSchema": "public",
+          "type": "enum('ACCOUNT_MANAGER','FIBER_PLANNING','SOLUTION_ARCHITECT','SOLUTION_ENGINEER','BC_ANALYST','CFO','SALES_OPERATIONS','SDU','SITE_ACQUISITION_MANAGER','PROJECT_MANAGER','CONTRACTOR')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "assigneeId": {
           "name": "assigneeId",
-          "type": "text",
+          "type": "varchar(36)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "status": {
           "name": "status",
-          "type": "OpportunityStatus",
-          "typeSchema": "public",
+          "type": "enum('OPPORTUNITY_CREATED','PBOQ_REQUESTED','FIBER_PLANNING_COSTS','BUSINESS_CASE_PREPARED','FINANCIAL_METRICS_COMPUTED','APPROVAL_ROUTING','FINANCE_CFO_APPROVAL','SALES_OPERATIONS_VALIDATION','SDU_VALIDATION','SURVEY_SITE_ACQUISITION','CONTRACTOR_IMPLEMENTATION','ACTUAL_COST_CAPTURE','BUDGET_ACTUAL_ANALYSIS','PROJECT_CLOSURE_REPORTING','REVERTED','CANCELLED')",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "dueAt": {
           "name": "dueAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "completedAt": {
           "name": "completedAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(now())"
         }
       },
       "indexes": {},
@@ -1127,106 +1596,26 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "WorkflowAssignment_id": {
+          "name": "WorkflowAssignment_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraint": {}
     }
   },
-  "enums": {
-    "public.ApprovalAction": {
-      "name": "ApprovalAction",
-      "schema": "public",
-      "values": [
-        "SUBMIT",
-        "APPROVE",
-        "REJECT",
-        "REVERT",
-        "ESCALATE",
-        "VALIDATE",
-        "REQUEST_REVISION",
-        "CAPTURE_ACTUALS",
-        "GENERATE_CERTIFICATE"
-      ]
-    },
-    "public.BusinessCaseType": {
-      "name": "BusinessCaseType",
-      "schema": "public",
-      "values": [
-        "ORDINARY_BC",
-        "MARGIN_ANALYSIS_BC"
-      ]
-    },
-    "public.DecisionOutput": {
-      "name": "DecisionOutput",
-      "schema": "public",
-      "values": [
-        "PROCEED",
-        "SEEK_FINANCE_APPROVAL",
-        "PROCEED_WITH_SUBSIDY_DISCLOSURE"
-      ]
-    },
-    "public.DocumentType": {
-      "name": "DocumentType",
-      "schema": "public",
-      "values": [
-        "SOLUTION_DESIGN",
-        "PBOQ",
-        "BUSINESS_CASE",
-        "SITE_ACQUISITION",
-        "SURVEY_REPORT",
-        "CONTRACTOR_QUOTE",
-        "BC_APPROVAL_CERTIFICATE",
-        "ACTUAL_COST_EVIDENCE"
-      ]
-    },
-    "public.OpportunityStatus": {
-      "name": "OpportunityStatus",
-      "schema": "public",
-      "values": [
-        "OPPORTUNITY_CREATED",
-        "PBOQ_REQUESTED",
-        "FIBER_PLANNING_COSTS",
-        "BUSINESS_CASE_PREPARED",
-        "FINANCIAL_METRICS_COMPUTED",
-        "APPROVAL_ROUTING",
-        "FINANCE_CFO_APPROVAL",
-        "SALES_OPERATIONS_VALIDATION",
-        "SDU_VALIDATION",
-        "SURVEY_SITE_ACQUISITION",
-        "CONTRACTOR_IMPLEMENTATION",
-        "ACTUAL_COST_CAPTURE",
-        "BUDGET_ACTUAL_ANALYSIS",
-        "PROJECT_CLOSURE_REPORTING",
-        "REVERTED",
-        "CANCELLED"
-      ]
-    },
-    "public.UserRole": {
-      "name": "UserRole",
-      "schema": "public",
-      "values": [
-        "ACCOUNT_MANAGER",
-        "FIBER_PLANNING",
-        "BC_ANALYST",
-        "CFO",
-        "SALES_OPERATIONS",
-        "SDU",
-        "SITE_ACQUISITION_MANAGER",
-        "PROJECT_MANAGER",
-        "CONTRACTOR"
-      ]
-    }
-  },
-  "schemas": {},
-  "sequences": {},
-  "roles": {},
-  "policies": {},
   "views": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
   }
 }

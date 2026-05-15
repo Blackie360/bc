@@ -1,20 +1,22 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
-  integer,
-  jsonb,
-  numeric,
-  pgEnum,
-  pgTable,
+  decimal,
+  int,
+  json,
+  mysqlEnum,
+  mysqlTable,
   text,
   timestamp,
-  unique,
-} from "drizzle-orm/pg-core";
+  uniqueIndex,
+  varchar,
+} from "drizzle-orm/mysql-core";
 import { randomUUID } from "node:crypto";
 
-const textId = (name: string) => text(name).primaryKey().$defaultFn(randomUUID);
+const textId = (name: string) =>
+  varchar(name, { length: 36 }).primaryKey().$defaultFn(randomUUID);
 
-export const userRole = pgEnum("UserRole", [
+const userRoleValues = [
   "ACCOUNT_MANAGER",
   "FIBER_PLANNING",
   "SOLUTION_ARCHITECT",
@@ -26,9 +28,9 @@ export const userRole = pgEnum("UserRole", [
   "SITE_ACQUISITION_MANAGER",
   "PROJECT_MANAGER",
   "CONTRACTOR",
-]);
+] as const;
 
-export const opportunityStatus = pgEnum("OpportunityStatus", [
+const opportunityStatusValues = [
   "OPPORTUNITY_CREATED",
   "PBOQ_REQUESTED",
   "FIBER_PLANNING_COSTS",
@@ -45,31 +47,21 @@ export const opportunityStatus = pgEnum("OpportunityStatus", [
   "PROJECT_CLOSURE_REPORTING",
   "REVERTED",
   "CANCELLED",
-]);
+] as const;
 
-export const businessCaseType = pgEnum("BusinessCaseType", [
-  "ORDINARY_BC",
-  "MARGIN_ANALYSIS_BC",
-]);
+const businessCaseTypeValues = ["ORDINARY_BC", "MARGIN_ANALYSIS_BC"] as const;
 
-export const decisionOutput = pgEnum("DecisionOutput", [
+const decisionOutputValues = [
   "PROCEED",
   "SEEK_FINANCE_APPROVAL",
   "PROCEED_WITH_SUBSIDY_DISCLOSURE",
-]);
+] as const;
 
-export const pboqCostSource = pgEnum("PboqCostSource", [
-  "ACTUAL_SURVEY",
-  "PBOQ_ESTIMATE",
-]);
+const pboqCostSourceValues = ["ACTUAL_SURVEY", "PBOQ_ESTIMATE"] as const;
 
-export const requiredService = pgEnum("RequiredService", [
-  "EPL",
-  "DIA",
-  "DFA",
-]);
+const requiredServiceValues = ["EPL", "DIA", "DFA"] as const;
 
-export const approvalAction = pgEnum("ApprovalAction", [
+const approvalActionValues = [
   "SUBMIT",
   "APPROVE",
   "REJECT",
@@ -79,9 +71,9 @@ export const approvalAction = pgEnum("ApprovalAction", [
   "REQUEST_REVISION",
   "CAPTURE_ACTUALS",
   "GENERATE_CERTIFICATE",
-]);
+] as const;
 
-export const documentType = pgEnum("DocumentType", [
+const documentTypeValues = [
   "SOLUTION_DESIGN",
   "PBOQ",
   "PBOQ_SUMMARY_PROOF",
@@ -97,39 +89,39 @@ export const documentType = pgEnum("DocumentType", [
   "ACTUAL_SURVEY_QUOTE",
   "BC_APPROVAL_CERTIFICATE",
   "ACTUAL_COST_EVIDENCE",
-]);
+] as const;
 
-export const users = pgTable("User", {
+export const users = mysqlTable("User", {
   id: textId("id"),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  role: userRole("role").notNull(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  role: mysqlEnum("role", userRoleValues).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const opportunities = pgTable("Opportunity", {
+export const opportunities = mysqlTable("Opportunity", {
   id: textId("id"),
-  reference: text("reference").notNull().unique(),
+  reference: varchar("reference", { length: 64 }).notNull().unique(),
   customerName: text("customerName").notNull(),
   opportunityName: text("opportunityName").notNull(),
   siteName: text("siteName"),
   siteCoordinates: text("siteCoordinates"),
-  requiredService: requiredService("requiredService"),
+  requiredService: mysqlEnum("requiredService", requiredServiceValues),
   capacity: text("capacity"),
   salesRequestor: text("salesRequestor"),
   leadNetworkPlanner: text("leadNetworkPlanner"),
   region: text("region").notNull(),
   segment: text("segment").notNull(),
-  mrr: numeric("mrr", { precision: 14, scale: 2 }).default("0").notNull(),
-  nrr: numeric("nrr", { precision: 14, scale: 2 }).default("0").notNull(),
-  contractTermMonths: integer("contractTermMonths").default(12).notNull(),
-  accountManagerId: text("accountManagerId")
+  mrr: decimal("mrr", { precision: 14, scale: 2 }).default("0").notNull(),
+  nrr: decimal("nrr", { precision: 14, scale: 2 }).default("0").notNull(),
+  contractTermMonths: int("contractTermMonths").default(12).notNull(),
+  accountManagerId: varchar("accountManagerId", { length: 36 })
     .notNull()
     .references(() => users.id),
-  status: opportunityStatus("status").default("OPPORTUNITY_CREATED").notNull(),
-  priority: text("priority").default("Normal").notNull(),
+  status: mysqlEnum("status", opportunityStatusValues).default("OPPORTUNITY_CREATED").notNull(),
+  priority: varchar("priority", { length: 32 }).default("Normal").notNull(),
   requestedDate: timestamp("requestedDate", { mode: "date" }).defaultNow().notNull(),
   designPlanDate: timestamp("designPlanDate", { mode: "date" }),
   targetInstallDate: timestamp("targetInstallDate", { mode: "date" }),
@@ -137,58 +129,56 @@ export const opportunities = pgTable("Opportunity", {
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const pboqRequests = pgTable("PboqRequest", {
+export const pboqRequests = mysqlTable("PboqRequest", {
   id: textId("id"),
-  opportunityId: text("opportunityId")
+  opportunityId: varchar("opportunityId", { length: 36 })
     .notNull()
     .unique()
     .references(() => opportunities.id),
-  solutionDesignDocumentId: text("solutionDesignDocumentId"),
-  siteCount: integer("siteCount").notNull(),
-  routeDistanceKm: numeric("routeDistanceKm", { precision: 10, scale: 2 }).notNull(),
-  surveyBudget: numeric("surveyBudget", { precision: 14, scale: 2 }).notNull(),
+  solutionDesignDocumentId: varchar("solutionDesignDocumentId", { length: 36 }),
+  siteCount: int("siteCount").notNull(),
+  routeDistanceKm: decimal("routeDistanceKm", { precision: 10, scale: 2 }).notNull(),
+  surveyBudget: decimal("surveyBudget", { precision: 14, scale: 2 }).notNull(),
   surveyAvailable: boolean("surveyAvailable").default(false).notNull(),
-  costSource: pboqCostSource("costSource").default("PBOQ_ESTIMATE").notNull(),
-  actualSurveyCost: numeric("actualSurveyCost", { precision: 14, scale: 2 }).default("0").notNull(),
+  costSource: mysqlEnum("costSource", pboqCostSourceValues).default("PBOQ_ESTIMATE").notNull(),
+  actualSurveyCost: decimal("actualSurveyCost", { precision: 14, scale: 2 }).default("0").notNull(),
   notes: text("notes"),
   fiberPlanningNotes: text("fiberPlanningNotes"),
   requestedAt: timestamp("requestedAt", { mode: "date" }).defaultNow().notNull(),
   completedAt: timestamp("completedAt", { mode: "date" }),
 });
 
-export const pboqCostLines = pgTable("PboqCostLine", {
+export const pboqCostLines = mysqlTable("PboqCostLine", {
   id: textId("id"),
-  pboqRequestId: text("pboqRequestId")
+  pboqRequestId: varchar("pboqRequestId", { length: 36 })
     .notNull()
     .references(() => pboqRequests.id),
   linkName: text("linkName").notNull(),
-  material: numeric("material", { precision: 14, scale: 2 }).notNull(),
-  build: numeric("build", { precision: 14, scale: 2 }).notNull(),
-  wayleave: numeric("wayleave", { precision: 14, scale: 2 }).notNull(),
+  material: decimal("material", { precision: 14, scale: 2 }).notNull(),
+  build: decimal("build", { precision: 14, scale: 2 }).notNull(),
+  wayleave: decimal("wayleave", { precision: 14, scale: 2 }).notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const businessCases = pgTable(
+export const businessCases = mysqlTable(
   "BusinessCase",
   {
     id: textId("id"),
-    opportunityId: text("opportunityId")
+    opportunityId: varchar("opportunityId", { length: 36 })
       .notNull()
       .references(() => opportunities.id),
-    version: integer("version").default(1).notNull(),
-    type: businessCaseType("type").notNull(),
-    solutionArchitectureName: text("solutionArchitectureName")
-      .default("Unassigned")
-      .notNull(),
+    version: int("version").default(1).notNull(),
+    type: mysqlEnum("type", businessCaseTypeValues).notNull(),
+    solutionArchitectureName: text("solutionArchitectureName").default("Unassigned").notNull(),
     solutionEngineerName: text("solutionEngineerName").default("Unassigned").notNull(),
-    irr: numeric("irr", { precision: 8, scale: 2 }).notNull(),
-    paybackMonths: integer("paybackMonths").notNull(),
-    capex: numeric("capex", { precision: 14, scale: 2 }).notNull(),
-    subsidyRequirement: numeric("subsidyRequirement", { precision: 14, scale: 2 }).notNull(),
-    approvedBudget: numeric("approvedBudget", { precision: 14, scale: 2 }).notNull(),
-    grossMarginPercent: numeric("grossMarginPercent", { precision: 8, scale: 2 }),
-    decisionOutput: decisionOutput("decisionOutput").notNull(),
+    irr: decimal("irr", { precision: 8, scale: 2 }).notNull(),
+    paybackMonths: int("paybackMonths").notNull(),
+    capex: decimal("capex", { precision: 14, scale: 2 }).notNull(),
+    subsidyRequirement: decimal("subsidyRequirement", { precision: 14, scale: 2 }).notNull(),
+    approvedBudget: decimal("approvedBudget", { precision: 14, scale: 2 }).notNull(),
+    grossMarginPercent: decimal("grossMarginPercent", { precision: 8, scale: 2 }),
+    decisionOutput: mysqlEnum("decisionOutput", decisionOutputValues).notNull(),
     requiresCfo: boolean("requiresCfo").default(false).notNull(),
     subsidyDisclosed: boolean("subsidyDisclosed").default(false).notNull(),
     submittedAt: timestamp("submittedAt", { mode: "date" }),
@@ -196,129 +186,134 @@ export const businessCases = pgTable(
     createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
     updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow().notNull(),
   },
-  (table) => [unique().on(table.opportunityId, table.version)],
+  (table) => ({
+    opportunityVersionUnique: uniqueIndex("BusinessCase_opportunityId_version_unique").on(
+      table.opportunityId,
+      table.version,
+    ),
+  }),
 );
 
-export const businessCaseLinks = pgTable("BusinessCaseLink", {
+export const businessCaseLinks = mysqlTable("BusinessCaseLink", {
   id: textId("id"),
-  businessCaseId: text("businessCaseId")
+  businessCaseId: varchar("businessCaseId", { length: 36 })
     .notNull()
     .references(() => businessCases.id),
   linkName: text("linkName").notNull(),
-  material: numeric("material", { precision: 14, scale: 2 }).notNull(),
-  labor: numeric("labor", { precision: 14, scale: 2 }).notNull(),
-  wayleave: numeric("wayleave", { precision: 14, scale: 2 }).notNull(),
-  mrr: numeric("mrr", { precision: 14, scale: 2 }).notNull(),
-  mrc: numeric("mrc", { precision: 14, scale: 2 }).notNull(),
-  nrc: numeric("nrc", { precision: 14, scale: 2 }).notNull(),
-  nrr: numeric("nrr", { precision: 14, scale: 2 }).notNull(),
-  evidenceDocumentId: text("evidenceDocumentId").references(() => documents.id),
+  material: decimal("material", { precision: 14, scale: 2 }).notNull(),
+  labor: decimal("labor", { precision: 14, scale: 2 }).notNull(),
+  wayleave: decimal("wayleave", { precision: 14, scale: 2 }).notNull(),
+  mrr: decimal("mrr", { precision: 14, scale: 2 }).notNull(),
+  mrc: decimal("mrc", { precision: 14, scale: 2 }).notNull(),
+  nrc: decimal("nrc", { precision: 14, scale: 2 }).notNull(),
+  nrr: decimal("nrr", { precision: 14, scale: 2 }).notNull(),
+  evidenceDocumentId: varchar("evidenceDocumentId", { length: 36 }).references(() => documents.id),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const workflowAssignments = pgTable("WorkflowAssignment", {
+export const workflowAssignments = mysqlTable("WorkflowAssignment", {
   id: textId("id"),
-  opportunityId: text("opportunityId")
+  opportunityId: varchar("opportunityId", { length: 36 })
     .notNull()
     .references(() => opportunities.id),
-  role: userRole("role").notNull(),
-  assigneeId: text("assigneeId").references(() => users.id),
-  status: opportunityStatus("status").notNull(),
+  role: mysqlEnum("role", userRoleValues).notNull(),
+  assigneeId: varchar("assigneeId", { length: 36 }).references(() => users.id),
+  status: mysqlEnum("status", opportunityStatusValues).notNull(),
   dueAt: timestamp("dueAt", { mode: "date" }),
   completedAt: timestamp("completedAt", { mode: "date" }),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const approvalHistory = pgTable("ApprovalHistory", {
+export const approvalHistory = mysqlTable("ApprovalHistory", {
   id: textId("id"),
-  opportunityId: text("opportunityId")
+  opportunityId: varchar("opportunityId", { length: 36 })
     .notNull()
     .references(() => opportunities.id),
-  businessCaseId: text("businessCaseId").references(() => businessCases.id),
-  actorId: text("actorId")
+  businessCaseId: varchar("businessCaseId", { length: 36 }).references(() => businessCases.id),
+  actorId: varchar("actorId", { length: 36 })
     .notNull()
     .references(() => users.id),
-  role: userRole("role").notNull(),
-  action: approvalAction("action").notNull(),
-  fromStatus: opportunityStatus("fromStatus"),
-  toStatus: opportunityStatus("toStatus"),
-  decision: decisionOutput("decision"),
+  role: mysqlEnum("role", userRoleValues).notNull(),
+  action: mysqlEnum("action", approvalActionValues).notNull(),
+  fromStatus: mysqlEnum("fromStatus", opportunityStatusValues),
+  toStatus: mysqlEnum("toStatus", opportunityStatusValues),
+  decision: mysqlEnum("decision", decisionOutputValues),
   notes: text("notes"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const revisions = pgTable("Revision", {
+export const revisions = mysqlTable("Revision", {
   id: textId("id"),
-  opportunityId: text("opportunityId")
+  opportunityId: varchar("opportunityId", { length: 36 })
     .notNull()
     .references(() => opportunities.id),
-  businessCaseId: text("businessCaseId").references(() => businessCases.id),
-  requestedById: text("requestedById")
+  businessCaseId: varchar("businessCaseId", { length: 36 }).references(() => businessCases.id),
+  requestedById: varchar("requestedById", { length: 36 })
     .notNull()
     .references(() => users.id),
   reason: text("reason").notNull(),
   notes: text("notes").notNull(),
-  revisionNumber: integer("revisionNumber").notNull(),
+  revisionNumber: int("revisionNumber").notNull(),
   resolvedAt: timestamp("resolvedAt", { mode: "date" }),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const documents = pgTable("Document", {
+export const documents = mysqlTable("Document", {
   id: textId("id"),
-  opportunityId: text("opportunityId")
+  opportunityId: varchar("opportunityId", { length: 36 })
     .notNull()
     .references(() => opportunities.id),
-  uploadedById: text("uploadedById")
+  uploadedById: varchar("uploadedById", { length: 36 })
     .notNull()
     .references(() => users.id),
-  type: documentType("type").notNull(),
+  type: mysqlEnum("type", documentTypeValues).notNull(),
   name: text("name").notNull(),
   storageKey: text("storageKey").notNull(),
-  mimeType: text("mimeType").notNull(),
-  sizeBytes: integer("sizeBytes").notNull(),
-  version: integer("version").default(1).notNull(),
+  mimeType: varchar("mimeType", { length: 255 }).notNull(),
+  sizeBytes: int("sizeBytes").notNull(),
+  version: int("version").default(1).notNull(),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const actualCostCaptures = pgTable("ActualCostCapture", {
+export const actualCostCaptures = mysqlTable("ActualCostCapture", {
   id: textId("id"),
-  opportunityId: text("opportunityId")
+  opportunityId: varchar("opportunityId", { length: 36 })
     .notNull()
     .references(() => opportunities.id),
-  businessCaseId: text("businessCaseId")
+  businessCaseId: varchar("businessCaseId", { length: 36 })
     .notNull()
     .references(() => businessCases.id),
   contractorName: text("contractorName"),
-  approvedBudget: numeric("approvedBudget", { precision: 14, scale: 2 }).notNull(),
-  actualSpend: numeric("actualSpend", { precision: 14, scale: 2 }).notNull(),
-  surveyBudget: numeric("surveyBudget", { precision: 14, scale: 2 }).notNull(),
-  surveyActual: numeric("surveyActual", { precision: 14, scale: 2 }).notNull(),
-  varianceAmount: numeric("varianceAmount", { precision: 14, scale: 2 }).notNull(),
-  variancePercent: numeric("variancePercent", { precision: 8, scale: 2 }).notNull(),
-  surveyDeviationPct: numeric("surveyDeviationPct", { precision: 8, scale: 2 }).notNull(),
+  approvedBudget: decimal("approvedBudget", { precision: 14, scale: 2 }).notNull(),
+  actualSpend: decimal("actualSpend", { precision: 14, scale: 2 }).notNull(),
+  surveyBudget: decimal("surveyBudget", { precision: 14, scale: 2 }).notNull(),
+  surveyActual: decimal("surveyActual", { precision: 14, scale: 2 }).notNull(),
+  varianceAmount: decimal("varianceAmount", { precision: 14, scale: 2 }).notNull(),
+  variancePercent: decimal("variancePercent", { precision: 8, scale: 2 }).notNull(),
+  surveyDeviationPct: decimal("surveyDeviationPct", { precision: 8, scale: 2 }).notNull(),
   capturedAt: timestamp("capturedAt", { mode: "date" }).defaultNow().notNull(),
 });
 
-export const approvalCertificates = pgTable("ApprovalCertificate", {
+export const approvalCertificates = mysqlTable("ApprovalCertificate", {
   id: textId("id"),
-  businessCaseId: text("businessCaseId")
+  businessCaseId: varchar("businessCaseId", { length: 36 })
     .notNull()
     .unique()
     .references(() => businessCases.id),
-  certificateNo: text("certificateNo").notNull().unique(),
+  certificateNo: varchar("certificateNo", { length: 128 }).notNull().unique(),
   issuedAt: timestamp("issuedAt", { mode: "date" }).defaultNow().notNull(),
   fileStorageKey: text("fileStorageKey").notNull(),
-  checksum: text("checksum").notNull(),
+  checksum: varchar("checksum", { length: 128 }).notNull(),
 });
 
-export const auditLogs = pgTable("AuditLog", {
+export const auditLogs = mysqlTable("AuditLog", {
   id: textId("id"),
-  opportunityId: text("opportunityId").references(() => opportunities.id),
-  actorId: text("actorId").references(() => users.id),
-  event: text("event").notNull(),
-  entityType: text("entityType").notNull(),
-  entityId: text("entityId").notNull(),
-  metadata: jsonb("metadata").notNull(),
+  opportunityId: varchar("opportunityId", { length: 36 }).references(() => opportunities.id),
+  actorId: varchar("actorId", { length: 36 }).references(() => users.id),
+  event: varchar("event", { length: 128 }).notNull(),
+  entityType: varchar("entityType", { length: 128 }).notNull(),
+  entityId: varchar("entityId", { length: 36 }).notNull(),
+  metadata: json("metadata").notNull(),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });
 

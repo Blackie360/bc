@@ -1,31 +1,18 @@
-import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
+import { getDatabaseConfig } from "./lib/db-config";
 
-function normalizeDatabaseUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const sslMode = url.searchParams.get("sslmode");
-
-    if (
-      sslMode &&
-      ["prefer", "require", "verify-ca"].includes(sslMode) &&
-      !url.searchParams.has("uselibpqcompat")
-    ) {
-      url.searchParams.set("sslmode", "verify-full");
-    }
-
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
+const config = getDatabaseConfig();
 
 export default defineConfig({
-  dialect: "postgresql",
+  dialect: "mysql",
   schema: "./lib/db/schema.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: process.env.DATABASE_URL ? normalizeDatabaseUrl(process.env.DATABASE_URL) : "",
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
   },
   strict: true,
   verbose: true,
