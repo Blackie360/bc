@@ -20,19 +20,6 @@ import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
-const attachmentLabels = {
-  SOLUTION_DESIGN: "Solution Design",
-  BC_TEMPLATE: "BC Template",
-  PBOQ: "PBOQ File",
-  PBOQ_SUMMARY_PROOF: "PBOQ Summary Proof",
-  PBOQ_BUILD_PROOF: "Build Proof",
-  PBOQ_MATERIAL_PROOF: "Material Proof",
-  PBOQ_WAYLEAVE_PROOF: "Wayleave Proof",
-  ORDER_FORM: "Order Form",
-  ACTUAL_SURVEY_QUOTE: "PBOQ / Quote Evidence",
-  BC_APPROVAL_CERTIFICATE: "BC Approval Certificate",
-} as const;
-
 function money(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
@@ -81,10 +68,20 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ submitted?: string; draft?: string }>;
+  searchParams: Promise<{ submitted?: string; draft?: string; fiberError?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
+  const fiberPlanningError =
+    typeof query.fiberError === "string" && query.fiberError.trim().length > 0
+      ? (() => {
+          try {
+            return decodeURIComponent(query.fiberError);
+          } catch {
+            return query.fiberError;
+          }
+        })()
+      : null;
   const project = await getProject(id);
 
   if (!project) {
@@ -141,6 +138,14 @@ export default async function ProjectDetailPage({
         }
       />
       <div className="mx-auto max-w-6xl space-y-4 px-6 pb-8 pt-6">
+        {fiberPlanningError ? (
+          <div
+            className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+            role="alert"
+          >
+            {fiberPlanningError}
+          </div>
+        ) : null}
         {query.submitted === "bc" ? (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             BC submitted and routed according to the approval rules.
@@ -179,83 +184,87 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
         </section>
-        <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle>{project.customer}</CardTitle>
-            <p className="font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
-          </CardHeader>
-          <CardContent className="grid gap-4 p-4 md:grid-cols-3">
-            {[
-              ["Title", project.title],
-              ["Site Name", project.siteName],
-              ["Site Coordinates", project.siteCoordinates],
-              ["Required Service", project.requiredService],
-              ["Capacity", project.capacity],
-              ["Date Requested", shortDate(project.dateRequested)],
-              ["Sales Requestor", project.salesRequestor],
-              ["Lead Network Planner", project.leadNetworkPlanner],
-              ["Design & Plan Date", shortDate(project.designPlanDate)],
-              ["Region", project.region],
-              ["Owner", project.owner],
-              ["Opportunity MRR", money(project.opportunityMrr)],
-              ["Opportunity NRR", money(project.opportunityNrr)],
-              ["Contract Term", `${project.contractTermMonths} months`],
-              ["Solution Architecture", project.solutionArchitectureName],
-              ["Solution Engineer", project.solutionEngineerName],
-              ["Lifecycle Stage", project.state],
-              ["Role Queue", project.roleQueue],
-              ["BC Type", project.type],
-              ["IRR", `${project.irr}%`],
-              ["Payback", `${project.payback} months`],
-              ["Capex", money(project.capex)],
-              ["Approved Budget", money(project.approvedBudget)],
-              ["Actual Spend", money(project.actualSpend)],
-              ["Total MRR", money(project.totalMrr)],
-              ["Total MRC", money(project.totalMrc)],
-              ["Total NRC", money(project.totalNrc)],
-              ["Total NRR", money(project.totalNrr)],
-              ["Variance", `${project.variance}%`],
-              ["Survey Deviation", `${project.surveyDeviation}%`],
-              ["Due", project.due],
-              ["Revisions", project.revisions.toString()],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
-                <p className="mt-2 font-medium">{value}</p>
+        {!isFiberPlanningStage ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>{project.customer}</CardTitle>
+              <p className="font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
+            </CardHeader>
+            <CardContent className="grid gap-4 p-4 md:grid-cols-3">
+              {[
+                ["Title", project.title],
+                ["Site Name", project.siteName],
+                ["Site Coordinates", project.siteCoordinates],
+                ["Required Service", project.requiredService],
+                ["Capacity", project.capacity],
+                ["Date Requested", shortDate(project.dateRequested)],
+                ["Sales Requestor", project.salesRequestor],
+                ["Lead Network Planner", project.leadNetworkPlanner],
+                ["Design & Plan Date", shortDate(project.designPlanDate)],
+                ["Region", project.region],
+                ["Owner", project.owner],
+                ["Opportunity MRR", money(project.opportunityMrr)],
+                ["Opportunity NRR", money(project.opportunityNrr)],
+                ["Contract Term", `${project.contractTermMonths} months`],
+                ["Solution Architecture", project.solutionArchitectureName],
+                ["Solution Engineer", project.solutionEngineerName],
+                ["Lifecycle Stage", project.state],
+                ["Role Queue", project.roleQueue],
+                ["BC Type", project.type],
+                ["IRR", `${project.irr}%`],
+                ["Payback", `${project.payback} months`],
+                ["Capex", money(project.capex)],
+                ["Approved Budget", money(project.approvedBudget)],
+                ["Actual Spend", money(project.actualSpend)],
+                ["Total MRR", money(project.totalMrr)],
+                ["Total MRC", money(project.totalMrc)],
+                ["Total NRC", money(project.totalNrc)],
+                ["Total NRR", money(project.totalNrr)],
+                ["Variance", `${project.variance}%`],
+                ["Survey Deviation", `${project.surveyDeviation}%`],
+                ["Due", project.due],
+                ["Revisions", project.revisions.toString()],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
+                  <p className="mt-2 font-medium">{value}</p>
+                </div>
+              ))}
+              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">Decision</p>
+                <Badge className="mt-2" variant="info">{project.decision}</Badge>
               </div>
-            ))}
-            <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">Decision</p>
-              <Badge className="mt-2" variant="info">{project.decision}</Badge>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle>PBOQ Request</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 p-4 md:grid-cols-3">
-            {project.pboqRequest ? (
-              <>
-                {[
-                  ["Route Distance", `${project.pboqRequest.routeDistanceKm} km`],
-                  ["Site Count", project.pboqRequest.siteCount.toString()],
-                  ["Survey Available", project.pboqRequest.surveyAvailable ? "Yes" : "No"],
-                  ["Cost Source", project.pboqRequest.costSource],
-                  ["Actual Survey Cost", money(project.pboqRequest.actualSurveyCost)],
-                  ["PBOQ Status", project.pboqRequest.completedAt ? "Completed" : "Pending Fiber Planning"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
-                    <p className="mt-2 font-medium">{value}</p>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <p className="text-sm text-[color:var(--color-muted)]">No PBOQ request recorded.</p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ) : null}
+        {!isFiberPlanningStage ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>PBOQ Request</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 p-4 md:grid-cols-3">
+              {project.pboqRequest ? (
+                <>
+                  {[
+                    ["Route Distance", `${project.pboqRequest.routeDistanceKm} km`],
+                    ["Site Count", project.pboqRequest.siteCount.toString()],
+                    ["Survey Available", project.pboqRequest.surveyAvailable ? "Yes" : "No"],
+                    ["Cost Source", project.pboqRequest.costSource],
+                    ["Actual Survey Cost", money(project.pboqRequest.actualSurveyCost)],
+                    ["PBOQ Status", project.pboqRequest.completedAt ? "Completed" : "Pending Fiber Planning"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
+                      <p className="mt-2 font-medium">{value}</p>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p className="text-sm text-[color:var(--color-muted)]">No PBOQ request recorded.</p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
         {isFiberPlanningStage ? (
           <section className="space-y-3">
             <div>
@@ -393,34 +402,6 @@ export default async function ProjectDetailPage({
                 </table>
               </div>
             )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle>Attachment Checklist</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 p-4 md:grid-cols-2">
-            {Object.entries(attachmentLabels).map(([type, label]) => {
-              const matches = project.documents.filter((document) => document.type === type);
-
-              return (
-                <div key={type} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-                      {label}
-                    </p>
-                    <Badge variant={matches.length > 0 ? "info" : "warning"}>
-                      {matches.length > 0 ? "Attached" : "Missing"}
-                    </Badge>
-                  </div>
-                  {matches.map((document) => (
-                    <p key={document.id} className="mt-2 truncate text-sm font-medium">
-                      {document.name}
-                    </p>
-                  ))}
-                </div>
-              );
-            })}
           </CardContent>
         </Card>
       </div>

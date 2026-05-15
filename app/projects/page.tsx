@@ -9,6 +9,22 @@ import { getRoleRoute, roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default async function ProjectsPage({
   searchParams,
 }: {
@@ -17,10 +33,9 @@ export default async function ProjectsPage({
   const query = await searchParams;
   const roleRoute = query.role ? getRoleRoute(query.role) : undefined;
   const projects = await listProjects();
-  const ongoingProjects = projects
-    .filter((project) => project.state !== 'Project Closure & Reporting')
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const delayedCount = projects.filter((project) => project.variance > 10).length;
+  const visibleProjects = [...(roleRoute
+    ? projects.filter((project) => project.roleQueue === roleRoute.role)
+    : projects)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const badgeLabel = roleRoute?.role ?? "Admin";
   const dashboardHref = roleRoute ? roleRoute.href : "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
@@ -77,56 +92,14 @@ export default async function ProjectsPage({
             Project saved. The latest version is listed below.
           </div>
         ) : null}
-        <section className="grid gap-3 md:grid-cols-4">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-                Total Projects
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-[color:var(--color-primary)]">
-                {projects.length}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-                In Progress
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-[color:var(--color-primary)]">
-                {projects.filter((project) => project.state !== "Project Closure & Reporting").length}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-                Delayed
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-[color:var(--color-primary)]">{delayedCount}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
-                Open Queues
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-[color:var(--color-primary)]">
-                {new Set(projects.map((project) => project.roleQueue)).size}
-              </p>
-            </CardContent>
-          </Card>
-        </section>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle className="text-sm">Project Register</CardTitle>
-            <span className="text-xs text-[color:var(--color-muted)]">
-              {projects.length}
-            </span>
+            <CardTitle className="text-sm">{roleRoute ? "Projects" : "All projects"}</CardTitle>
+            <span className="text-xs text-[color:var(--color-muted)]">{visibleProjects.length}</span>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto p-4">
-              <table className="w-full min-w-[1180px] text-left text-sm">
+              <table className="w-full min-w-[1060px] text-left text-sm">
                 <thead className="border-b border-[color:var(--color-border)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
                   <tr>
                     <th className="px-4 py-3 font-medium">Project</th>
@@ -135,13 +108,12 @@ export default async function ProjectsPage({
                     <th className="px-4 py-3 font-medium">Role Queue</th>
                     <th className="px-4 py-3 font-medium">Decision</th>
                     <th className="px-4 py-3 font-medium">Budget / Revenue</th>
-                    <th className="px-4 py-3 font-medium">Due</th>
                     <th className="px-4 py-3 font-medium">Last Updated</th>
                     <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
-                  {projects.map((project) => (
+                  {visibleProjects.map((project) => (
                     // Fiber Planning projects are updated via the Fiber Planning form, not generic edit.
                     <tr key={project.id} className="hover:bg-[color:var(--color-surface-soft)]">
                       <td className="px-4 py-4">
@@ -151,7 +123,7 @@ export default async function ProjectsPage({
                         </p>
                         <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
                       </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.createdAt}</td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{formatDateTime(project.createdAt)}</td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.state}</td>
                       <td className="px-4 py-4">
                         {project.roleQueue ? (
@@ -169,8 +141,7 @@ export default async function ProjectsPage({
                           MRR {new Intl.NumberFormat("en-US").format(project.totalMrr)}
                         </p>
                       </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.due}</td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.updatedAt}</td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{formatDateTime(project.updatedAt)}</td>
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-2">
                           <Button asChild size="sm" variant="secondary">
@@ -197,61 +168,12 @@ export default async function ProjectsPage({
                       </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle className="text-sm">Ongoing Pipeline (Read Only)</CardTitle>
-            <span className="text-xs text-[color:var(--color-muted)]">{ongoingProjects.length}</span>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto p-4">
-              <table className="w-full min-w-[980px] overflow-hidden rounded-lg border border-[color:var(--color-border)] text-left text-sm">
-                <thead className="bg-[color:var(--color-surface-soft)] text-[11px] uppercase text-[color:var(--color-muted)]">
-                  <tr>
-                    <th className="px-4 py-3 font-bold">Project</th>
-                    <th className="px-4 py-3 font-bold">Stage</th>
-                    <th className="px-4 py-3 font-bold">Role Queue</th>
-                    <th className="px-4 py-3 font-bold">Updated</th>
-                    <th className="px-4 py-3 font-bold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[color:var(--color-border)]">
-                  {ongoingProjects.map((project) => (
-                    <tr key={project.id} className="hover:bg-[color:var(--color-surface-soft)]">
-                      <td className="px-4 py-4">
-                        <p className="font-medium">{project.customer}</p>
-                        <p className="mt-1 text-xs text-[color:var(--color-muted-strong)]">
-                          {project.siteName} · {project.requiredService}
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
-                      </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.state}</td>
-                      <td className="px-4 py-4">
-                        {project.roleQueue ? (
-                          <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
-                            {project.roleQueue}
-                          </Badge>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.updatedAt}</td>
-                      <td className="px-4 py-4">
-                        <Button asChild size="sm" variant="secondary">
-                          <Link href={`/projects/${project.id}`}>
-                            <Eye className="h-4 w-4" aria-hidden="true" />
-                            View
-                          </Link>
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {ongoingProjects.length === 0 ? (
+                  {visibleProjects.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={5}>
-                        No ongoing projects currently in the pipeline.
+                      <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={8}>
+                        {roleRoute
+                          ? "No projects are assigned to this role in the register."
+                          : "No projects yet."}
                       </td>
                     </tr>
                   ) : null}

@@ -42,3 +42,4 @@ yarn-error.log*
 next-env.d.ts
 git
 tmp-pboq-browser-test.txt
+tmp-fiber-queue-final.png

@@ -40,6 +40,7 @@ function projectsHrefForRole(role: Role) {
 }
 
 const accountManagerProjectsHref = projectsHrefForRole("Account Manager");
+const fiberPlanningProjectsHref = projectsHrefForRole("Fiber Planning Team");
 
 export async function createProjectAction(formData: FormData) {
   const project = await createProject(parseProjectForm(formData));
@@ -68,11 +69,27 @@ export async function completeFiberPlanningAction(id: string, formData: FormData
     throw new Error("Fiber Planning submission is only allowed for Fiber Planning queue projects.");
   }
 
-  const project = await completeFiberPlanning(id, parseFiberPlanningForm(formData));
+  let fiberInput: FiberPlanningInput;
+  try {
+    fiberInput = parseFiberPlanningForm(formData);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Fiber planning could not be validated.";
+    redirect(`/projects/${encodeURIComponent(id)}?fiberError=${encodeURIComponent(message)}`);
+  }
+
+  let project;
+  try {
+    project = await completeFiberPlanning(id, fiberInput);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Fiber planning could not be saved.";
+    redirect(`/projects/${encodeURIComponent(id)}?fiberError=${encodeURIComponent(message)}`);
+  }
 
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
-  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=fiber`);
+  redirect(`${fiberPlanningProjectsHref}&submitted=fiber`);
 }
 
 export async function prepareBusinessCaseFromPboqAction(id: string, formData: FormData) {
@@ -239,11 +256,14 @@ function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
     "wayleaveProofFile",
     "PBOQ_WAYLEAVE_PROOF",
   );
-  const hasCategoryProofs = Boolean(buildProofFile && materialProofFile && wayleaveProofFile);
+  const categoryProofCount = [buildProofFile, materialProofFile, wayleaveProofFile].filter(
+    Boolean,
+  ).length;
 
-  if (!summaryProofFile && !hasCategoryProofs) {
+  // Optional extras, but if any category Excel is uploaded, require all three (or rely on Summary only).
+  if (categoryProofCount > 0 && categoryProofCount < 3) {
     throw new Error(
-      "Attach either one combined summary Excel or all three proof Excels (Build, Material, Wayleave).",
+      "Upload all three category proof Excels (Build, Material, Wayleave), or only the Summary proof Excel.",
     );
   }
 

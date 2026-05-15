@@ -662,9 +662,20 @@ async function toProjectRecord(
       (total, line) => total + line.material + line.build + line.wayleave,
       0,
     ) ?? 0;
-  const approvedBudget = businessCase
-    ? dbNumber(businessCase.approvedBudget)
-    : pboqBudget;
+  const bcApprovedBudget = businessCase ? dbNumber(businessCase.approvedBudget) : 0;
+  const bcCapex = businessCase ? dbNumber(businessCase.capex) : 0;
+  // Latest BC row wins in the DB, but draft rows often keep approvedBudget at 0 while Fiber
+  // stores real totals on PBOQ cost lines. Show the roll-up until a submitted BC fixes a number.
+  const approvedBudget = !businessCase
+    ? pboqBudget
+    : businessCase.submittedAt != null && bcApprovedBudget > 0
+      ? bcApprovedBudget
+      : Math.max(bcApprovedBudget, pboqBudget);
+  const capex = !businessCase
+    ? pboqBudget
+    : businessCase.submittedAt != null && bcCapex > 0
+      ? bcCapex
+      : Math.max(bcCapex, pboqBudget);
   const actualSpend = dbNumber(actuals?.actualSpend);
   const variance =
     actuals?.variancePercent != null
@@ -704,7 +715,7 @@ async function toProjectRecord(
     type: businessCase ? dbToType[businessCase.type] : "Ordinary BC",
     irr: dbNumber(businessCase?.irr),
     payback: businessCase?.paybackMonths ?? 36,
-    capex: businessCase ? dbNumber(businessCase.capex) : pboqBudget,
+    capex,
     subsidy: dbNumber(businessCase?.subsidyRequirement),
     approvedBudget,
     actualSpend,

@@ -74,10 +74,12 @@ function FileUploadField({
   id,
   name,
   required,
+  accept,
 }: {
   id: string;
   name: string;
   required?: boolean;
+  accept?: string;
 }) {
   const [fileName, setFileName] = useState("No file selected");
 
@@ -100,6 +102,7 @@ function FileUploadField({
         name={name}
         type="file"
         required={required}
+        accept={accept}
         onChange={handleChange}
         className="sr-only"
       />
@@ -276,6 +279,10 @@ export function FiberPlanningForm({
       <Card>
         <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
           <CardTitle className="text-sm">Planning Output</CardTitle>
+          <p className="mt-2 text-xs font-normal text-[color:var(--color-muted)]">
+            Final PBOQ upload is required. Proof Excels are optional (.xls / .xlsx).
+            If you attach any of Build / Material / Wayleave proofs, attach all three—or use Summary only.
+          </p>
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-2">
           <Field label="Final PBOQ File">
@@ -284,17 +291,33 @@ export function FiberPlanningForm({
           <Field label="Fiber Planning Notes">
             <Textarea name="fiberPlanningNotes" />
           </Field>
-          <Field label="Summary Proof Excel (optional if uploading 3 category proofs)">
-            <FileUploadField id="summaryProofFile" name="summaryProofFile" />
+          <Field label="Summary Proof Excel (optional)">
+            <FileUploadField
+              id="summaryProofFile"
+              name="summaryProofFile"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            />
           </Field>
-          <Field label="Build Proof Excel">
-            <FileUploadField id="buildProofFile" name="buildProofFile" />
+          <Field label="Build Proof Excel (optional)">
+            <FileUploadField
+              id="buildProofFile"
+              name="buildProofFile"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            />
           </Field>
-          <Field label="Material Proof Excel">
-            <FileUploadField id="materialProofFile" name="materialProofFile" />
+          <Field label="Material Proof Excel (optional)">
+            <FileUploadField
+              id="materialProofFile"
+              name="materialProofFile"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            />
           </Field>
-          <Field label="Wayleave Proof Excel">
-            <FileUploadField id="wayleaveProofFile" name="wayleaveProofFile" />
+          <Field label="Wayleave Proof Excel (optional)">
+            <FileUploadField
+              id="wayleaveProofFile"
+              name="wayleaveProofFile"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            />
           </Field>
         </CardContent>
       </Card>
