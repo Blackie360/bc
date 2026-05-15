@@ -17,7 +17,7 @@ type WorkflowLink = {
 type PrimaryKey = "dashboard" | "projects";
 
 const primaryNav: { key: PrimaryKey; href: string; label: string }[] = [
-  { key: "dashboard", href: "/roles", label: "Dashboard" },
+  { key: "dashboard", href: "/roles", label: "My Queue" },
   { key: "projects", href: "/projects", label: "Projects" },
 ];
 

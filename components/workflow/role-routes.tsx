@@ -135,7 +135,7 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
   return (
     <AdminShell
       code="ADM"
-      title="Admin Dashboard"
+      title="My Queue"
       subtitle="Workflow control center"
       badgeLabel="Admin"
       primaryActive="dashboard"

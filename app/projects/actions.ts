@@ -49,13 +49,13 @@ export async function createProjectAction(formData: FormData) {
 
 export async function createPboqRequestAction(formData: FormData) {
   const accountManagerName = await getCurrentUserDisplayName();
-  const project = await createPboqRequest({
+  await createPboqRequest({
     ...parsePboqRequestForm(formData),
     accountManagerName,
   });
 
   revalidateProjectViews();
-  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=pboq`);
+  redirect(`${accountManagerProjectsHref}&submitted=pboq`);
 }
 
 export async function completeFiberPlanningAction(id: string, formData: FormData) {
