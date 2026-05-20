@@ -44,3 +44,4 @@ git
 tmp-pboq-browser-test.txt
 tmp-fiber-queue-final.png
 .data/
+scripts/test-lifecycle.mjs

@@ -356,14 +356,8 @@ export function FiberPlanningForm({
   projectId: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [rows, setRows] = useState<FiberPlanningRow[]>(() => {
-    if (typeof window === "undefined") {
-      return [{ id: 1 }];
-    }
-
-    const draft = readLifecycleStage(projectId, "fiberPlanning");
-    return buildFiberPlanningRowsFromDraft(draft?.lines) as FiberPlanningRow[];
-  });
+  const [rows, setRows] = useState<FiberPlanningRow[]>([{ id: 1 }]);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
       scopeKey: projectId,
@@ -395,6 +389,18 @@ export function FiberPlanningForm({
     });
 
   useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    if (restoredDraft?.lines?.length) {
+      setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
+    }
+
+    setHasRestoredDraft(true);
+  }, [isReady, restoredDraft]);
+
+  useEffect(() => {
     return bindFormAutoSave(formRef.current);
   }, [bindFormAutoSave, isReady, rows]);
 
@@ -408,7 +414,7 @@ export function FiberPlanningForm({
     );
   }
 
-  if (!isReady) {
+  if (!isReady || !hasRestoredDraft) {
     return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
   }
 
@@ -745,21 +751,9 @@ export function PreparedBcForm({
   project: ProjectRecord;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [rows, setRows] = useState<LinkRowState[]>(() => {
-    if (typeof window === "undefined") {
-      return buildInitialLinkRows(project);
-    }
-
-    const draft = readLifecycleStage(project.id, "bcPreparation");
-    return buildInitialLinkRows(project, draft);
-  });
-  const [activeTab, setActiveTab] = useState<BcFormTab>(() => {
-    if (typeof window === "undefined") {
-      return "details";
-    }
-
-    return readLifecycleStage(project.id, "bcPreparation")?.activeTab ?? "details";
-  });
+  const [rows, setRows] = useState<LinkRowState[]>(() => buildInitialLinkRows(project));
+  const [activeTab, setActiveTab] = useState<BcFormTab>("details");
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
       scopeKey: project.id,
@@ -775,6 +769,19 @@ export function PreparedBcForm({
       deps: [activeTab, rows, project],
     });
   const savedDraft = restoredDraft;
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    if (restoredDraft) {
+      setRows(buildInitialLinkRows(project, restoredDraft));
+      setActiveTab(restoredDraft.activeTab ?? "details");
+    }
+
+    setHasRestoredDraft(true);
+  }, [project, restoredDraft, isReady]);
   const pboqBudget = useMemo(
     () =>
       project.pboqRequest?.costLines.reduce(
@@ -849,7 +856,7 @@ export function PreparedBcForm({
 
   const isFinalTab = activeTab === "metrics";
 
-  if (!isReady) {
+  if (!isReady || !hasRestoredDraft) {
     return (
       <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>
     );

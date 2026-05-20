@@ -180,22 +180,9 @@ export function BcSubmissionForm({
   accountManagerDisplayName: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [rows, setRows] = useState<LinkRow[]>(() => {
-    if (typeof window === "undefined") {
-      return [{ id: 1 }];
-    }
-
-    const draft = readLifecycleStage(lifecycleDraftScopes.bcSubmission, "bcSubmission");
-    return buildRowsFromDraft(draft?.links);
-  });
-  const [nrcParts, setNrcParts] = useState<Record<number, Record<string, string>>>(() => {
-    if (typeof window === "undefined") {
-      return {};
-    }
-
-    const draft = readLifecycleStage(lifecycleDraftScopes.bcSubmission, "bcSubmission");
-    return buildNrcPartsFromDraft(draft?.links);
-  });
+  const [rows, setRows] = useState<LinkRow[]>([{ id: 1 }]);
+  const [nrcParts, setNrcParts] = useState<Record<number, Record<string, string>>>({});
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
       scopeKey: lifecycleDraftScopes.bcSubmission,
@@ -211,6 +198,19 @@ export function BcSubmissionForm({
       deps: [rows, nrcParts],
     });
   const draft = restoredDraft;
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+
+    if (restoredDraft?.links?.length) {
+      setRows(buildRowsFromDraft(restoredDraft.links));
+      setNrcParts(buildNrcPartsFromDraft(restoredDraft.links));
+    }
+
+    setHasRestoredDraft(true);
+  }, [isReady, restoredDraft]);
 
   useEffect(() => {
     return bindFormAutoSave(formRef.current);
@@ -253,7 +253,7 @@ export function BcSubmissionForm({
     }
   }
 
-  if (!isReady) {
+  if (!isReady || !hasRestoredDraft) {
     return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
   }
 

@@ -39,10 +39,22 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
   buildDraft,
   deps = [],
 }: UseFormLifecycleDraftOptions<S>) {
-  const [restoredDraft] = useState(() => readInitialDraft(scopeKey, stage, enabled));
-  const [savedAt, setSavedAt] = useState<string | null>(() => restoredDraft?.savedAt ?? null);
+  const [isReady, setIsReady] = useState(false);
+  const [restoredDraft, setRestoredDraft] = useState<LifecycleStageDraftMap[S] | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const isReady = typeof window !== "undefined";
+
+  useEffect(() => {
+    if (!enabled) {
+      setIsReady(true);
+      return;
+    }
+
+    const draft = readInitialDraft(scopeKey, stage, enabled);
+    setRestoredDraft(draft);
+    setSavedAt(draft?.savedAt ?? null);
+    setIsReady(true);
+  }, [enabled, scopeKey, stage]);
 
   useEffect(() => {
     if (!enabled || !isReady) return;
