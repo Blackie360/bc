@@ -80,7 +80,7 @@ export default async function ProjectsPage({
         ) : null}
         {query.submitted === "pboq" ? (
           <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
-            PBOQ request submitted to Fiber Planning. The saved project is listed below.
+            PBOQ request submitted to Fiber Planning for processing. Your Account Manager queue is shown below.
           </div>
         ) : null}
         {query.submitted === "fiber" ? (
