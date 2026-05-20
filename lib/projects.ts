@@ -27,11 +27,26 @@ import {
   type PreparedBcDraftLink,
 } from "@/lib/project-lifecycle-storage";
 import {
+  encodeKickoffLinkNotes,
+  pboqKickoffLinkInputSchema,
+  type PboqCostLineRecord,
+  type PboqKickoffLinkInput,
+} from "@/lib/pboq-kickoff-links";
+import {
   linkCostSourceValues,
   linkOnnetOffnetValues,
   type LinkCostSource,
   type LinkOnnetOffnet,
 } from "@/lib/projects-types";
+
+export {
+  encodeKickoffLinkNotes,
+  KICKOFF_LINK_NOTES_MARKER,
+  parseKickoffLinkNotes,
+  pboqKickoffLinkInputSchema,
+  type PboqCostLineRecord,
+  type PboqKickoffLinkInput,
+} from "@/lib/pboq-kickoff-links";
 import {
   deriveDecision,
   roles,
@@ -303,6 +318,7 @@ export const pboqRequestInputSchema = z
     surveyAvailable: z.boolean().default(false),
     actualSurveyCost: z.coerce.number().nonnegative().default(0),
     notes: z.string().optional(),
+    links: z.array(pboqKickoffLinkInputSchema).min(1),
     pboqAttachment: z
       .object({
         type: z.literal("PBOQ"),
@@ -338,16 +354,22 @@ export const pboqCostLineInputSchema = z.object({
   notes: z.string().optional(),
 });
 
+const pboqAttachmentInputSchema = z.object({
+  type: z.literal("PBOQ"),
+  name: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int().positive(),
+  storageKey: z.string().min(1),
+});
+
+export const fiberPlanningLineInputSchema = pboqCostLineInputSchema.extend({
+  pboqFile: pboqAttachmentInputSchema,
+});
+
 export const fiberPlanningInputSchema = z.object({
   fiberPlanningNotes: z.string().optional(),
-  lines: z.array(pboqCostLineInputSchema).min(1),
-  pboqFile: z.object({
-    type: z.literal("PBOQ"),
-    name: z.string().min(1),
-    mimeType: z.string().min(1),
-    sizeBytes: z.number().int().positive(),
-    storageKey: z.string().min(1),
-  }),
+  lines: z.array(fiberPlanningLineInputSchema).min(1),
+  kickoffLinkCount: z.coerce.number().int().positive().optional(),
 });
 
 export type FiberPlanningInput = z.infer<typeof fiberPlanningInputSchema>;
@@ -435,25 +457,8 @@ export type BcDraftInput = {
   attachments: BcSubmissionInput["attachments"];
 };
 
-export type ProjectLinkRecord = {
-  id: string;
-  linkName: string;
-  service: string;
-  technology: string;
-  onnetOffnet: LinkOnnetOffnet | null;
-  costSource: LinkCostSource | null;
-  newBuildCost: number;
-  provisioningCost: number;
-  materialCost: number;
-  wayleaveCost: number;
-  mrr: number;
-  mrc: number;
-  nrc: number;
-  nrr: number;
-  onnetCapacity: string | null;
-  offnetCapacity: string | null;
-  evidenceDocumentId: string | null;
-};
+export type { ProjectLinkRecord } from "@/lib/project-record-types";
+import type { ProjectLinkRecord } from "@/lib/project-record-types";
 
 function linkNrcTotal(link: {
   newBuildCost: number;
@@ -526,70 +531,31 @@ function mapLinkRecordToDbInsert(
   };
 }
 
-export type ProjectDocumentRecord = {
-  id: string;
-  type: DbDocumentType;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  createdAt: string;
-};
+export type { ProjectDocumentRecord } from "@/lib/project-record-types";
+import type { ProjectDocumentRecord } from "@/lib/project-record-types";
 
-export type PboqCostLineRecord = {
-  id: string;
-  linkName: string;
-  material: number;
-  build: number;
-  wayleave: number;
-  notes: string | null;
-};
+export function mapKickoffLinksToCostLineRecords(
+  links: PboqKickoffLinkInput[],
+): PboqCostLineRecord[] {
+  return links.map((link) => ({
+    id: createId(),
+    linkName: link.linkName.trim(),
+    material: 0,
+    build: 0,
+    wayleave: 0,
+    notes: encodeKickoffLinkNotes({
+      region: link.region,
+      service: link.service,
+      capacity: link.capacity,
+    }),
+  }));
+}
 
-export type PboqRequestRecord = {
-  id: string;
-  siteCount: number;
-  routeDistanceKm: number;
-  surveyBudget: number;
-  surveyAvailable: boolean;
-  costSource: DbPboqCostSource;
-  actualSurveyCost: number;
-  notes: string | null;
-  fiberPlanningNotes: string | null;
-  completedAt: string | null;
-  costLines: PboqCostLineRecord[];
-  bcPreparationDraft?: PreparedBcDraft | null;
-};
-
-export type ProjectRecord = ProjectInput & {
-  id: string;
-  siteName: string;
-  siteCoordinates: string;
-  requiredService: Exclude<DbRequiredService, null> | "Unspecified";
-  capacity: string;
-  salesRequestor: string;
-  leadNetworkPlanner: string;
-  dateRequested: string;
-  designPlanDate: string | null;
-  accountNumber: string;
-  solutionArchitectureName: string;
-  solutionEngineerName: string;
-  projectExecutiveSummary: string;
-  opportunityMrr: number;
-  opportunityNrr: number;
-  contractTermMonths: number;
-  pboqRequest?: PboqRequestRecord;
-  links: ProjectLinkRecord[];
-  documents: ProjectDocumentRecord[];
-  totalMrr: number;
-  totalMrc: number;
-  totalNrc: number;
-  totalNrr: number;
-  decision: DecisionOutput | "PENDING";
-  certificateIssued: boolean;
-  variance: number;
-  revisions: number;
-  createdAt: string;
-  updatedAt: string;
-};
+export type {
+  PboqRequestRecord,
+  ProjectRecord,
+} from "@/lib/project-record-types";
+import type { PboqRequestRecord, ProjectRecord } from "@/lib/project-record-types";
 
 export type FinanceDecision =
   | "approve"
@@ -932,6 +898,7 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
 
   const now = new Date().toISOString();
   const hasExistingPboq = validated.pboqMode === "existing";
+  const kickoffCostLines = mapKickoffLinksToCostLineRecords(validated.links);
   const pboqDocument = validated.pboqAttachment
     ? localDocument(validated.pboqAttachment, now)
     : undefined;
@@ -972,7 +939,7 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
       documents: pboqDocument ? [pboqDocument] : [],
       pboqRequest: {
         id: createId(),
-        siteCount: validated.siteCount,
+        siteCount: validated.links.length,
         routeDistanceKm: validated.routeDistanceKm,
         surveyBudget: validated.surveyAvailable ? validated.actualSurveyCost : 0,
         surveyAvailable: validated.surveyAvailable,
@@ -981,13 +948,28 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
         notes: validated.notes || null,
         fiberPlanningNotes: null,
         completedAt: hasExistingPboq ? now : null,
-        costLines: [],
+        costLines: kickoffCostLines,
       },
     },
   );
 
   await writeLocalProjects([project, ...projects]);
   return project;
+}
+
+function assertFiberPlanningLineCount(
+  kickoffLinkCount: number | undefined,
+  submittedLineCount: number,
+) {
+  if (kickoffLinkCount == null || kickoffLinkCount <= 1) {
+    return;
+  }
+
+  if (submittedLineCount !== kickoffLinkCount) {
+    throw new Error(
+      `This project has ${kickoffLinkCount} links. Enter costs and upload a PBOQ for each link.`,
+    );
+  }
 }
 
 async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput) {
@@ -1005,6 +987,10 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
         throw new Error("Project is not in a Fiber Planning stage.");
       }
 
+      const kickoffLinkCount =
+        validated.kickoffLinkCount ?? project.pboqRequest.costLines.length;
+      assertFiberPlanningLineCount(kickoffLinkCount, validated.lines.length);
+
       const now = new Date().toISOString();
       const costLines = validated.lines.map((line) => ({
         id: createId(),
@@ -1018,7 +1004,7 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
         (total, line) => total + line.material + line.build + line.wayleave,
         0,
       );
-      const documents = [localDocument(validated.pboqFile, now)];
+      const documents = validated.lines.map((line) => localDocument(line.pboqFile, now));
 
       updatedProject = {
         ...project,
@@ -1829,7 +1815,7 @@ export async function createPboqRequest(input: PboqRequestInput) {
     id: pboqRequestId,
     opportunityId: opportunity.id,
     solutionDesignDocumentId: null,
-    siteCount: validated.siteCount,
+    siteCount: validated.links.length,
     routeDistanceKm: toNumeric(validated.routeDistanceKm),
     surveyBudget: toNumeric(validated.surveyAvailable ? validated.actualSurveyCost : 0),
     surveyAvailable: validated.surveyAvailable,
@@ -1839,6 +1825,21 @@ export async function createPboqRequest(input: PboqRequestInput) {
     completedAt: hasExistingPboq ? new Date() : null,
   });
   const pboqRequest = await selectPboqRequestById(db, pboqRequestId);
+
+  await db.insert(pboqCostLines).values(
+    validated.links.map((link) => ({
+      pboqRequestId: pboqRequest.id,
+      linkName: link.linkName.trim(),
+      material: toNumeric(0),
+      build: toNumeric(0),
+      wayleave: toNumeric(0),
+      notes: encodeKickoffLinkNotes({
+        region: link.region,
+        service: link.service,
+        capacity: link.capacity,
+      }),
+    })),
+  );
 
   await db.insert(workflowAssignments).values({
     opportunityId: opportunity.id,
@@ -1926,6 +1927,14 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     0,
   );
 
+  const existingKickoffLines = await db
+    .select({ id: pboqCostLines.id })
+    .from(pboqCostLines)
+    .where(eq(pboqCostLines.pboqRequestId, pboqRequest.id));
+
+  const kickoffLinkCount = validated.kickoffLinkCount ?? existingKickoffLines.length;
+  assertFiberPlanningLineCount(kickoffLinkCount, validated.lines.length);
+
   await db.delete(pboqCostLines).where(eq(pboqCostLines.pboqRequestId, pboqRequest.id));
   await db.insert(pboqCostLines).values(
     validated.lines.map((line) => ({
@@ -1938,15 +1947,17 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     })),
   );
 
-  await db.insert(documents).values({
-    opportunityId: opportunity.id,
-    uploadedById: actor,
-    type: "PBOQ",
-    name: validated.pboqFile.name,
-    storageKey: validated.pboqFile.storageKey,
-    mimeType: validated.pboqFile.mimeType,
-    sizeBytes: validated.pboqFile.sizeBytes,
-  });
+  await db.insert(documents).values(
+    validated.lines.map((line) => ({
+      opportunityId: opportunity.id,
+      uploadedById: actor,
+      type: "PBOQ" as const,
+      name: line.pboqFile.name,
+      storageKey: line.pboqFile.storageKey,
+      mimeType: line.pboqFile.mimeType,
+      sizeBytes: line.pboqFile.sizeBytes,
+    })),
+  );
 
   await db
     .update(opportunities)

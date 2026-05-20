@@ -28,6 +28,13 @@ const attachmentMetadataSchema = z.object({
   sizeBytes: z.number().optional(),
 });
 
+export const pboqKickoffLinkDraftSchema = z.object({
+  linkName: z.string().optional(),
+  region: z.string().optional(),
+  service: z.enum(["EPL", "DIA", "DFA"]).optional(),
+  capacity: z.string().optional(),
+});
+
 export const pboqRequestDraftSchema = z.object({
   savedAt: z.string(),
   opportunityNumber: z.string().optional(),
@@ -42,6 +49,7 @@ export const pboqRequestDraftSchema = z.object({
   capacity: z.string().optional(),
   leadNetworkPlanner: z.string().optional(),
   region: z.string().optional(),
+  links: z.array(pboqKickoffLinkDraftSchema).optional(),
 });
 
 export const fiberPlanningLineDraftSchema = z.object({
@@ -50,13 +58,13 @@ export const fiberPlanningLineDraftSchema = z.object({
   build: z.string().optional(),
   wayleave: z.string().optional(),
   notes: z.string().optional(),
+  pboqFile: attachmentMetadataSchema.optional(),
 });
 
 export const fiberPlanningDraftSchema = z.object({
   savedAt: z.string(),
   fiberPlanningNotes: z.string().optional(),
   lines: z.array(fiberPlanningLineDraftSchema).optional(),
-  pboqFile: attachmentMetadataSchema.optional(),
 });
 
 export const preparedBcDraftLinkSchema = z.object({

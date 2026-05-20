@@ -4,13 +4,11 @@ import { createPboqRequestAction } from "@/app/projects/actions";
 import { Button } from "@/components/ui/button";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { PboqRequestForm } from "@/components/workflow/pboq-workflow-forms";
-import { getCurrentUserDisplayName } from "@/lib/current-user";
 import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewProjectPage() {
-  const accountManagerDisplayName = await getCurrentUserDisplayName();
   const accountManagerRoute = roleRoutes.find((route) => route.role === "Account Manager");
   const accountManagerDashboardHref = accountManagerRoute?.href ?? "/roles/account-manager";
   const accountManagerProjectsHref = `/projects?role=${accountManagerRoute?.slug ?? "account-manager"}`;
@@ -40,10 +38,7 @@ export default async function NewProjectPage() {
         }
       />
       <div className="mx-auto max-w-7xl space-y-4 px-6 pb-8 pt-6">
-        <PboqRequestForm
-          action={createPboqRequestAction}
-          accountManagerDisplayName={accountManagerDisplayName}
-        />
+        <PboqRequestForm action={createPboqRequestAction} />
       </div>
     </AdminShell>
   );

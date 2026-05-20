@@ -56,6 +56,7 @@ export async function createPboqRequestAction(formData: FormData) {
   await createPboqRequest({
     ...parsePboqRequestForm(formData),
     accountManagerName,
+    salesRequestor: accountManagerName,
   });
 
   revalidateProjectViews();
@@ -223,36 +224,60 @@ type RawLinkRow = Partial<Record<LinkFieldName, string>>;
 const pboqCostLineFieldNames = ["linkName", "material", "build", "wayleave", "notes"] as const;
 type PboqCostLineFieldName = (typeof pboqCostLineFieldNames)[number];
 type RawPboqCostLineRow = Partial<Record<PboqCostLineFieldName, string>>;
+const pboqKickoffLinkFieldNames = ["linkName", "region", "service", "capacity"] as const;
+type PboqKickoffLinkFieldName = (typeof pboqKickoffLinkFieldNames)[number];
+type RawPboqKickoffLinkRow = Partial<Record<PboqKickoffLinkFieldName, string>>;
 
 type BcSubmissionFormFields = Omit<BcSubmissionInput, "accountManagerName">;
 type BcDraftFormFields = Omit<BcDraftInput, "accountManagerName">;
-type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName">;
+type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName" | "salesRequestor">;
 
 function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   const pboqMode = textField(formData, "pboqMode");
+  const links = parsePboqKickoffLinks(formData);
+  const defaultService = textField(formData, "requiredService") as PboqRequestInput["requiredService"];
+
+  if (links.length === 0) {
+    throw new Error("Add at least one link before submitting the PBOQ request.");
+  }
+
+  const normalizedLinks = links.map((link, index) => {
+    const region = link.region?.trim() ?? "";
+
+    if (region.length < 2) {
+      throw new Error(`Link ${index + 1} requires a region.`);
+    }
+
+    return {
+      linkName: link.linkName ?? "",
+      region,
+      service: (link.service as PboqRequestInput["requiredService"] | undefined) ?? defaultService,
+      capacity: link.capacity || textField(formData, "capacity"),
+    };
+  });
 
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
     customerName: textField(formData, "customerName"),
     siteName: textField(formData, "siteName"),
     siteCoordinates: textField(formData, "siteCoordinates"),
-    requiredService: textField(formData, "requiredService") as PboqRequestInput["requiredService"],
+    requiredService: defaultService,
     capacity: textField(formData, "capacity"),
     dateRequested: textField(formData, "dateRequested"),
-    salesRequestor: textField(formData, "salesRequestor"),
     leadNetworkPlanner: textField(formData, "leadNetworkPlanner"),
     designPlanDate: textField(formData, "designPlanDate") || textField(formData, "dateRequested"),
-    region: textField(formData, "region"),
+    region: normalizedLinks[0].region,
     segment: "Enterprise",
     mrr: Number(textField(formData, "mrr")),
     nrr: Number(textField(formData, "nrr")),
     contractTermMonths: Number(textField(formData, "contractTermMonths")),
     pboqMode: pboqMode === "existing" ? "existing" : "request",
     routeDistanceKm: 0,
-    siteCount: 0,
+    siteCount: links.length,
     surveyAvailable: false,
     actualSurveyCost: 0,
     notes: textField(formData, "notes"),
+    links: normalizedLinks,
     pboqAttachment: optionalFileAttachment(
       formData,
       "pboqAttachment",
@@ -261,11 +286,54 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   };
 }
 
+function parsePboqKickoffLinks(formData: FormData): RawPboqKickoffLinkRow[] {
+  const rawRows = new Map<number, RawPboqKickoffLinkRow>();
+  const linkFieldPattern = /^kickoffLinks\[(\d+)]\[(\w+)]$/;
+
+  for (const [key, value] of formData.entries()) {
+    if (typeof value !== "string") continue;
+
+    const match = key.match(linkFieldPattern);
+    if (!match) continue;
+
+    const index = Number(match[1]);
+    const field = match[2] as PboqKickoffLinkFieldName;
+
+    if (!pboqKickoffLinkFieldNames.includes(field)) continue;
+
+    rawRows.set(index, {
+      ...rawRows.get(index),
+      [field]: value.trim(),
+    });
+  }
+
+  return Array.from(rawRows.entries())
+    .sort(([left], [right]) => left - right)
+    .filter(([, row]) => Boolean(row.linkName?.length))
+    .map(([, row]) => row);
+}
+
 function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
+  const kickoffLinkCountRaw = textField(formData, "kickoffLinkCount");
+  const kickoffLinkCount =
+    kickoffLinkCountRaw.length > 0 ? Number(kickoffLinkCountRaw) : undefined;
+  const lines = parsePboqCostLines(formData).map((line, index) => ({
+    ...line,
+    pboqFile: fileAttachment(
+      formData,
+      `pboqLines[${index}][pboqFile]`,
+      "PBOQ",
+      `PBOQ file for ${line.linkName} is required.`,
+    ),
+  }));
+
   return {
     fiberPlanningNotes: textField(formData, "fiberPlanningNotes"),
-    lines: parsePboqCostLines(formData),
-    pboqFile: fileAttachment(formData, "pboqFile", "PBOQ"),
+    lines,
+    kickoffLinkCount:
+      kickoffLinkCount != null && Number.isFinite(kickoffLinkCount) && kickoffLinkCount > 0
+        ? kickoffLinkCount
+        : undefined,
   };
 }
 
@@ -306,7 +374,9 @@ function parsePreparedBcForm(formData: FormData): PreparedBcInput {
   };
 }
 
-function parsePboqCostLines(formData: FormData): FiberPlanningInput["lines"] {
+function parsePboqCostLines(
+  formData: FormData,
+): Array<Omit<FiberPlanningInput["lines"][number], "pboqFile">> {
   const rawRows = new Map<number, RawPboqCostLineRow>();
   const lineFieldPattern = /^pboqLines\[(\d+)]\[(\w+)]$/;
 

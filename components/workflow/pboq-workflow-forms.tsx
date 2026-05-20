@@ -21,7 +21,12 @@ import {
   type PreparedBcDraft,
   readLifecycleStage,
 } from "@/lib/project-lifecycle-storage";
-import type { ProjectRecord } from "@/lib/projects";
+import {
+  KICKOFF_LINK_NOTES_MARKER,
+  parseKickoffLinkNotes,
+  type PboqCostLineRecord,
+} from "@/lib/pboq-kickoff-links";
+import type { ProjectRecord } from "@/lib/project-record-types";
 
 const kenyaCounties = [
   "Baringo",
@@ -152,178 +157,224 @@ function FileUploadField({
 }
 
 type Row = { id: number };
+type FiberPlanningRow = Row & FiberPlanningLineDraft;
+
+type KickoffLinkRow = Row & {
+  linkName?: string;
+  region?: string;
+  service?: "EPL" | "DIA" | "DFA";
+  capacity?: string;
+};
+
+const defaultKickoffRegion = kenyaCounties[0];
 
 export function PboqRequestForm({
   action,
-  accountManagerDisplayName,
 }: {
   action: (formData: FormData) => void | Promise<void>;
-  accountManagerDisplayName: string;
 }) {
   const todayDate = new Date().toISOString().slice(0, 10);
-  const formRef = useRef<HTMLFormElement>(null);
-  const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
-    useFormLifecycleDraft({
-      scopeKey: lifecycleDraftScopes.pboqRequest,
-      stage: "pboqRequest",
-      buildDraft: () => {
-        const form = formRef.current;
-        if (!form) {
-          return { savedAt: new Date().toISOString() };
-        }
+  const [linkRows, setLinkRows] = useState<KickoffLinkRow[]>([
+    { id: 1, region: defaultKickoffRegion },
+  ]);
+  const [defaultKickoffService, setDefaultKickoffService] = useState<"EPL" | "DIA" | "DFA">("EPL");
 
-        return {
-          savedAt: new Date().toISOString(),
-          opportunityNumber: readFormFieldValue(form, "opportunityNumber"),
-          dateRequested: readFormFieldValue(form, "dateRequested"),
-          customerName: readFormFieldValue(form, "customerName"),
-          mrr: readFormFieldValue(form, "mrr"),
-          nrr: readFormFieldValue(form, "nrr"),
-          contractTermMonths: readFormFieldValue(form, "contractTermMonths"),
-          siteName: readFormFieldValue(form, "siteName"),
-          siteCoordinates: readFormFieldValue(form, "siteCoordinates"),
-          requiredService: readFormFieldValue(form, "requiredService") as
-            | "EPL"
-            | "DIA"
-            | "DFA"
-            | undefined,
-          capacity: readFormFieldValue(form, "capacity"),
-          leadNetworkPlanner: readFormFieldValue(form, "leadNetworkPlanner"),
-          region: readFormFieldValue(form, "region"),
-        };
+  function addLinkRow() {
+    setLinkRows((current) => [
+      ...current,
+      {
+        id: Date.now(),
+        region: current[0]?.region ?? defaultKickoffRegion,
+        service: defaultKickoffService,
       },
-    });
+    ]);
+  }
 
-  useEffect(() => {
-    return bindFormAutoSave(formRef.current);
-  }, [bindFormAutoSave, isReady]);
-
-  if (!isReady) {
-    return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
+  function removeLinkRow(id: number) {
+    setLinkRows((current) =>
+      current.length === 1 ? current : current.filter((row) => row.id !== id),
+    );
   }
 
   return (
-    <form
-      ref={formRef}
-      action={action}
-      className="space-y-4"
-      onSubmit={() => clearDraft()}
-    >
-      <DraftSavedNotice savedAtLabel={savedAtLabel} saveError={saveError} />
+    <form action={action} className="space-y-4">
       <input type="hidden" name="pboqMode" value="request" />
+      <RequiredFieldLegend />
       <Card>
         <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
           <CardTitle className="text-sm">Project Start Request</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-2">
-          <Field label="Opportunity Number">
-            <Input
-              name="opportunityNumber"
-              defaultValue={restoredDraft?.opportunityNumber}
-              required
-            />
+          <Field label="Opportunity Number" required>
+            <Input name="opportunityNumber" required />
           </Field>
-          <Field label="Date Requested">
-            <Input
-              name="dateRequested"
-              type="date"
-              defaultValue={restoredDraft?.dateRequested ?? todayDate}
-              required
-            />
+          <Field label="Date Requested" required>
+            <Input name="dateRequested" type="date" defaultValue={todayDate} required />
           </Field>
-          <Field label="Client">
-            <Input name="customerName" defaultValue={restoredDraft?.customerName} required />
+          <Field label="Client" required>
+            <Input name="customerName" required />
           </Field>
-          <Field label="MRR">
+          <Field label="MRR" required>
             <Input
               name="mrr"
               type="number"
               inputMode="decimal"
               min="0"
               step="0.01"
-              defaultValue={restoredDraft?.mrr}
               required
             />
           </Field>
-          <Field label="NRR">
+          <Field label="NRR" required>
             <Input
               name="nrr"
               type="number"
               inputMode="decimal"
               min="0"
               step="0.01"
-              defaultValue={restoredDraft?.nrr}
               required
             />
           </Field>
-          <Field label="Contract Term">
-            <Select
-              name="contractTermMonths"
-              defaultValue={restoredDraft?.contractTermMonths ?? "12"}
-            >
+          <Field label="Contract Term" required>
+            <Select name="contractTermMonths" defaultValue="12" required>
               <option value="12">12 months</option>
               <option value="24">24 months</option>
               <option value="36">36 months</option>
             </Select>
           </Field>
-          <Field label="Site Name">
-            <Input name="siteName" defaultValue={restoredDraft?.siteName} required />
+          <Field label="Site Name" required>
+            <Input name="siteName" required />
           </Field>
-          <Field label="Site Coordinates">
+          <Field label="Site Coordinates" required>
             <Input
               name="siteCoordinates"
               placeholder="1.2975 S, 36.8914 E"
-              defaultValue={restoredDraft?.siteCoordinates}
               required
             />
           </Field>
-          <Field label="Required Service">
+          <Field label="Required Service" required>
             <Select
               name="requiredService"
-              defaultValue={restoredDraft?.requiredService ?? "EPL"}
+              defaultValue="EPL"
+              required
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value === "EPL" || value === "DIA" || value === "DFA") {
+                  setDefaultKickoffService(value);
+                }
+              }}
             >
               <option value="EPL">EPL</option>
               <option value="DIA">DIA</option>
               <option value="DFA">DFA</option>
             </Select>
           </Field>
-          <Field label="Capacity">
-            <Input
-              name="capacity"
-              placeholder="e.g. 1 Gbps"
-              defaultValue={restoredDraft?.capacity}
-              required
-            />
+          <Field label="Capacity" required>
+            <Input name="capacity" placeholder="e.g. 1 Gbps" required />
           </Field>
-          <Field label="Sales Requestor">
-            <div className="flex h-10 items-center rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-3 text-sm">
-              {accountManagerDisplayName}
-            </div>
-            <input type="hidden" name="salesRequestor" value={accountManagerDisplayName} />
+          <Field label="Lead Network Planner" required>
+            <Input name="leadNetworkPlanner" required />
           </Field>
-          <Field label="Lead Network Planner">
-            <Input
-              name="leadNetworkPlanner"
-              defaultValue={restoredDraft?.leadNetworkPlanner}
-              required
-            />
-          </Field>
-          <Field label="Region">
-            <>
-              <Input
-                name="region"
-                list="kenya-counties"
-                defaultValue={restoredDraft?.region ?? kenyaCounties[0]}
-                placeholder="Start typing a county name..."
-                required
-              />
-              <datalist id="kenya-counties">
-                {kenyaCounties.map((county) => (
-                  <option key={county} value={county} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
+          <div>
+            <CardTitle className="text-sm">Service Links</CardTitle>
+            <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+              Add one link for a single-site deal, or multiple links when the opportunity spans several connections.
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="secondary" onClick={addLinkRow}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Link
+          </Button>
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="overflow-x-auto">
+            <datalist id="kenya-counties">
+              {kenyaCounties.map((county) => (
+                <option key={county} value={county} />
+              ))}
+            </datalist>
+            <table className="w-full min-w-[960px] text-left text-sm">
+              <thead className="text-[11px] uppercase text-[color:var(--color-muted)]">
+                <tr>
+                  <th className="px-2 py-2 font-medium">
+                    Link name
+                    <span className="text-[color:var(--color-danger-text)]" aria-hidden="true">
+                      {" "}
+                      *
+                    </span>
+                  </th>
+                  <th className="px-2 py-2 font-medium">
+                    Region
+                    <span className="text-[color:var(--color-danger-text)]" aria-hidden="true">
+                      {" "}
+                      *
+                    </span>
+                  </th>
+                  {["Service", "Capacity", "Action"].map((label) => (
+                    <th key={label} className="px-2 py-2 font-medium">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[color:var(--color-border)]">
+                {linkRows.map((row, index) => (
+                  <tr key={row.id}>
+                    <td className="px-2 py-2">
+                      <Input
+                        name={`kickoffLinks[${index}][linkName]`}
+                        defaultValue={row.linkName}
+                        placeholder={`Link ${index + 1}`}
+                        required
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        name={`kickoffLinks[${index}][region]`}
+                        list="kenya-counties"
+                        defaultValue={row.region ?? defaultKickoffRegion}
+                        placeholder="County"
+                        required
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Select
+                        name={`kickoffLinks[${index}][service]`}
+                        defaultValue={row.service ?? defaultKickoffService}
+                      >
+                        <option value="EPL">EPL</option>
+                        <option value="DIA">DIA</option>
+                        <option value="DFA">DFA</option>
+                      </Select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        name={`kickoffLinks[${index}][capacity]`}
+                        defaultValue={row.capacity}
+                        placeholder="e.g. 1 Gbps"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeLinkRow(row.id)}
+                        disabled={linkRows.length === 1}
+                        aria-label={`Remove link ${index + 1}`}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </td>
+                  </tr>
                 ))}
-              </datalist>
-            </>
-          </Field>
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
@@ -333,6 +384,27 @@ export function PboqRequestForm({
       </FormSubmitButton>
     </form>
   );
+}
+
+function buildFiberPlanningRowsFromCostLines(
+  costLines: PboqCostLineRecord[],
+): FiberPlanningRow[] {
+  if (costLines.length === 0) {
+    return [{ id: 1 }];
+  }
+
+  return costLines.map((line, index) => {
+    const isKickoffNotes = line.notes?.startsWith(KICKOFF_LINK_NOTES_MARKER) ?? false;
+
+    return {
+      id: index + 1,
+      linkName: line.linkName,
+      material: line.material > 0 ? String(line.material) : "",
+      build: line.build > 0 ? String(line.build) : "",
+      wayleave: line.wayleave > 0 ? String(line.wayleave) : "",
+      notes: isKickoffNotes ? "" : (line.notes ?? ""),
+    };
+  });
 }
 
 function buildFiberPlanningRowsFromDraft(lines?: FiberPlanningLineDraft[]): Row[] {
@@ -346,17 +418,22 @@ function buildFiberPlanningRowsFromDraft(lines?: FiberPlanningLineDraft[]): Row[
   }));
 }
 
-type FiberPlanningRow = Row & FiberPlanningLineDraft;
-
 export function FiberPlanningForm({
   action,
   projectId,
+  initialCostLines = [],
+  kickoffLinkCount = 0,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   projectId: string;
+  initialCostLines?: PboqCostLineRecord[];
+  kickoffLinkCount?: number;
 }) {
+  const isMultiLinkKickoff = kickoffLinkCount > 1;
   const formRef = useRef<HTMLFormElement>(null);
-  const [rows, setRows] = useState<FiberPlanningRow[]>([{ id: 1 }]);
+  const [rows, setRows] = useState<FiberPlanningRow[]>(() =>
+    buildFiberPlanningRowsFromCostLines(initialCostLines),
+  );
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
@@ -368,21 +445,30 @@ export function FiberPlanningForm({
           return { savedAt: new Date().toISOString() };
         }
 
-        const input = form.elements.namedItem("pboqFile");
-        const pboqFile =
-          input instanceof HTMLInputElement
-            ? readFileMetadata(input)
-            : readLifecycleStage(projectId, "fiberPlanning")?.pboqFile;
+        const savedFiberDraft = readLifecycleStage(projectId, "fiberPlanning");
+        const lineRows = readIndexedFormRows<{
+          linkName?: string;
+          material?: string;
+          build?: string;
+          wayleave?: string;
+          notes?: string;
+        }>(form, "pboqLines", ["linkName", "material", "build", "wayleave", "notes"]);
 
         return {
           savedAt: new Date().toISOString(),
           fiberPlanningNotes: readFormFieldValue(form, "fiberPlanningNotes"),
-          lines: readIndexedFormRows<FiberPlanningLineDraft>(
-            form,
-            "pboqLines",
-            ["linkName", "material", "build", "wayleave", "notes"],
-          ),
-          pboqFile,
+          lines: lineRows.map((line, index) => {
+            const fileInput = form.elements.namedItem(`pboqLines[${index}][pboqFile]`);
+            const pboqFile =
+              fileInput instanceof HTMLInputElement
+                ? readFileMetadata(fileInput)
+                : savedFiberDraft?.lines?.[index]?.pboqFile;
+
+            return {
+              ...line,
+              pboqFile,
+            };
+          }),
         };
       },
       deps: [rows, projectId],
@@ -395,20 +481,30 @@ export function FiberPlanningForm({
 
     if (restoredDraft?.lines?.length) {
       setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
+    } else if (initialCostLines.length > 0) {
+      setRows(buildFiberPlanningRowsFromCostLines(initialCostLines));
     }
 
     setHasRestoredDraft(true);
-  }, [isReady, restoredDraft]);
+  }, [initialCostLines, isReady, restoredDraft]);
 
   useEffect(() => {
     return bindFormAutoSave(formRef.current);
   }, [bindFormAutoSave, isReady, rows]);
 
   function addRow() {
+    if (isMultiLinkKickoff) {
+      return;
+    }
+
     setRows((current) => [...current, { id: Date.now() }]);
   }
 
   function removeRow(id: number) {
+    if (isMultiLinkKickoff) {
+      return;
+    }
+
     setRows((current) =>
       current.length === 1 ? current : current.filter((row) => row.id !== id),
     );
@@ -426,22 +522,36 @@ export function FiberPlanningForm({
       onSubmit={() => clearDraft()}
     >
       <DraftSavedNotice savedAtLabel={savedAtLabel} saveError={saveError} />
+      {isMultiLinkKickoff ? (
+        <input type="hidden" name="kickoffLinkCount" value={kickoffLinkCount} />
+      ) : null}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">PBOQ Cost Lines</CardTitle>
-          <Button type="button" size="sm" variant="secondary" onClick={addRow}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Line
-          </Button>
+          <div>
+            <CardTitle className="text-sm">PBOQ Cost Lines</CardTitle>
+            {isMultiLinkKickoff ? (
+              <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                This opportunity has {kickoffLinkCount} links. Upload one PBOQ file for each link.
+              </p>
+            ) : null}
+          </div>
+          {isMultiLinkKickoff ? null : (
+            <Button type="button" size="sm" variant="secondary" onClick={addRow}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Line
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="p-4">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-sm">
+            <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="text-[11px] uppercase text-[color:var(--color-muted)]">
                 <tr>
-                  {["Link", "Build", "Material", "Wayleave", "Notes", "Action"].map((label) => (
-                    <th key={label} className="px-2 py-2 font-medium">{label}</th>
-                  ))}
+                  {["Link", "Build", "Material", "Wayleave", "PBOQ File", "Notes", "Action"].map(
+                    (label) => (
+                      <th key={label} className="px-2 py-2 font-medium">{label}</th>
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[color:var(--color-border)]">
@@ -451,6 +561,7 @@ export function FiberPlanningForm({
                       <Input
                         name={`pboqLines[${index}][linkName]`}
                         defaultValue={row.linkName}
+                        readOnly={isMultiLinkKickoff}
                         required
                       />
                     </td>
@@ -488,10 +599,18 @@ export function FiberPlanningForm({
                       />
                     </td>
                     <td className="px-2 py-2">
+                      <FileUploadField
+                        id={`pboqFile-${row.id}`}
+                        name={`pboqLines[${index}][pboqFile]`}
+                        required
+                        defaultFileName={restoredDraft?.lines?.[index]?.pboqFile?.name}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
                       <Input name={`pboqLines[${index}][notes]`} defaultValue={row.notes} />
                     </td>
                     <td className="px-2 py-2">
-                      {rows.length > 1 ? (
+                      {!isMultiLinkKickoff && rows.length > 1 ? (
                         <Button type="button" size="icon" variant="warning" onClick={() => removeRow(row.id)} aria-label="Remove PBOQ row">
                           <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </Button>
@@ -508,15 +627,7 @@ export function FiberPlanningForm({
         <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
           <CardTitle className="text-sm">Planning Output</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 p-4 md:grid-cols-2">
-          <Field label="Final PBOQ File">
-            <FileUploadField
-              id="pboqFile"
-              name="pboqFile"
-              required
-              defaultFileName={restoredDraft?.pboqFile?.name}
-            />
-          </Field>
+        <CardContent className="p-4">
           <Field label="Fiber Planning Notes">
             <Textarea
               name="fiberPlanningNotes"
@@ -630,18 +741,23 @@ function buildInitialLinkRows(
     ];
   }
 
-  return costLines.map((line, index) => ({
-    id: index + 1,
-    linkName: line.linkName,
-    onnetOffnet: "Onnet",
-    service: "DIA",
-    technology: "Fiber",
-    costSource: "PBOQ",
-    newBuildCost: String(line.build),
-    materialCost: String(line.material),
-    wayleaveCost: String(line.wayleave),
-    ...defaultRevenueForNewRow(project, costLines.length),
-  }));
+  return costLines.map((line, index) => {
+    const kickoff = parseKickoffLinkNotes(line.notes);
+
+    return {
+      id: index + 1,
+      linkName: line.linkName,
+      onnetOffnet: "Onnet",
+      service: kickoff.service ?? project.requiredService ?? "DIA",
+      technology: "Fiber",
+      costSource: "PBOQ",
+      onnetCapacity: kickoff.capacity ?? project.capacity ?? undefined,
+      newBuildCost: String(line.build),
+      materialCost: String(line.material),
+      wayleaveCost: String(line.wayleave),
+      ...defaultRevenueForNewRow(project, costLines.length),
+    };
+  });
 }
 
 function buildPreparedBcDraft(

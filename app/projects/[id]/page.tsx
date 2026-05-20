@@ -15,6 +15,7 @@ import { FinanceDecisionForm } from "@/components/workflow/finance-decision-form
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { parseKickoffLinkNotes } from "@/lib/pboq-kickoff-links";
 import {
   canEditProject,
   getProject,
@@ -169,6 +170,33 @@ export default async function ProjectDetailPage({
                       <p className="mt-2 font-medium">{value}</p>
                     </div>
                   ))}
+                  {project.pboqRequest.costLines.length > 0 ? (
+                    <div className="md:col-span-3 rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                        Requested Links ({project.pboqRequest.costLines.length})
+                      </p>
+                      <ul className="mt-2 space-y-2 text-sm">
+                        {project.pboqRequest.costLines.map((line) => {
+                          const kickoff = parseKickoffLinkNotes(line.notes);
+
+                          return (
+                            <li key={line.id} className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">{line.linkName}</span>
+                              {kickoff.region ? (
+                                <Badge>{kickoff.region}</Badge>
+                              ) : null}
+                              {kickoff.service ? (
+                                <Badge>{kickoff.service}</Badge>
+                              ) : null}
+                              {kickoff.capacity ? (
+                                <span className="text-[color:var(--color-muted)]">{kickoff.capacity}</span>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <p className="text-sm text-[color:var(--color-muted)]">No PBOQ request recorded.</p>
@@ -181,10 +209,17 @@ export default async function ProjectDetailPage({
             <div>
               <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Fiber Planning</h2>
               <p className="text-sm text-[color:var(--color-muted)]">
-                Generate the PBOQ cost pack with build, material, and wayleave costs.
+                {project.pboqRequest && project.pboqRequest.costLines.length > 1
+                  ? "Enter build, material, and wayleave costs for each requested link and upload a separate PBOQ file per link."
+                  : "Generate the PBOQ cost pack with build, material, and wayleave costs."}
               </p>
             </div>
-            <FiberPlanningForm action={fiberPlanningAction} projectId={project.id} />
+            <FiberPlanningForm
+              action={fiberPlanningAction}
+              projectId={project.id}
+              initialCostLines={project.pboqRequest?.costLines ?? []}
+              kickoffLinkCount={project.pboqRequest?.costLines.length ?? 0}
+            />
           </section>
         ) : null}
         {isAccountManagerBcStage ? (
