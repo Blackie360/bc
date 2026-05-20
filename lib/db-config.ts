@@ -6,6 +6,7 @@ export type DatabaseConfig = {
   user: string;
   password: string;
   database: string;
+  connectTimeoutMs: number;
 };
 
 function requiredEnv(name: string) {
@@ -25,5 +26,6 @@ export function getDatabaseConfig(): DatabaseConfig {
     password: requiredEnv("DB_PASSWORD"),
     database: requiredEnv("DB_NAME"),
     port: Number(process.env.DB_PORT ?? 3306),
+    connectTimeoutMs: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 5_000),
   };
 }

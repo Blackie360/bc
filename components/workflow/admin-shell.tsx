@@ -63,7 +63,7 @@ export function AdminShell({
           ) : null}
           <div className="flex items-center justify-between gap-4 px-6 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border)] text-xs font-semibold text-[color:var(--color-primary)]">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-primary-soft-strong)] bg-[color:var(--color-primary-soft)] text-xs font-semibold text-[color:var(--color-primary)]">
                 {code}
               </div>
               <div className="min-w-0">
@@ -76,7 +76,7 @@ export function AdminShell({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-surface-soft)] px-3 py-1.5 text-xs font-semibold text-[color:var(--color-primary)]">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-primary-soft)] px-3 py-1.5 text-xs font-semibold text-[color:var(--color-primary)] ring-1 ring-[color:var(--color-primary-soft-strong)]">
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                 {badgeLabel}
               </span>
@@ -97,7 +97,7 @@ export function AdminShell({
         {showSidebar ? (
           <aside className="border-r border-[color:var(--color-border)] bg-white px-3 py-4">
             <nav className="space-y-4" aria-label={isAdmin ? "Admin navigation" : "Role navigation"}>
-              <div className="rounded-lg border border-[color:var(--color-border)] bg-white p-3">
+              <div className="rounded-xl border border-[color:var(--color-border)] bg-white p-3 shadow-sm">
                 <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                   {isAdmin ? "Admin Navigation" : "Navigation"}
                 </p>
@@ -107,9 +107,9 @@ export function AdminShell({
                       key={item.key}
                       href={item.key === "dashboard" ? dashboardHref : projectsHref}
                       className={cn(
-                        "flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)] hover:text-[color:var(--color-primary)]",
+                        "flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--color-primary)]",
                         primaryActive === item.key &&
-                          "bg-[color:var(--color-surface-soft)] text-[color:var(--color-primary)]",
+                          "bg-[color:var(--color-primary)] text-white hover:bg-[color:var(--color-primary-hover)] hover:text-white",
                       )}
                     >
                       <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
@@ -119,7 +119,7 @@ export function AdminShell({
                 </div>
               </div>
               {showWorkflowLinks && workflowLinks.length > 0 ? (
-                <div className="rounded-lg border border-[color:var(--color-border)] bg-white p-3">
+                <div className="rounded-xl border border-[color:var(--color-border)] bg-white p-3 shadow-sm">
                   <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                     {workflowTitle}
                   </p>
@@ -129,9 +129,9 @@ export function AdminShell({
                         key={`${link.href}-${link.label}`}
                         href={link.href}
                         className={cn(
-                          "flex items-center gap-2 rounded-md px-2.5 py-2 text-xs font-medium text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)] hover:text-[color:var(--color-primary)]",
+                          "flex items-center gap-2 rounded-md px-2.5 py-2 text-xs font-medium text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--color-primary)]",
                           link.active &&
-                            "bg-[color:var(--color-surface-soft)] text-[color:var(--color-primary)]",
+                            "bg-[color:var(--color-primary)] text-white hover:bg-[color:var(--color-primary-hover)] hover:text-white",
                         )}
                       >
                         <FolderKanban className="h-3.5 w-3.5" aria-hidden="true" />
@@ -160,10 +160,10 @@ export function ShellHeading({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-[color:var(--color-border)] bg-white px-6 py-5 md:flex-row md:items-start md:justify-between">
+    <div className="flex flex-col gap-3 border-b border-[color:var(--color-support-border)] bg-[color:var(--color-support-surface)] px-6 py-5 text-[color:var(--color-support-text)] md:flex-row md:items-start md:justify-between">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-1 text-sm text-[color:var(--color-muted)]">{subtitle}</p>
+        <p className="mt-1 text-sm text-[color:var(--color-support-text)] opacity-80">{subtitle}</p>
       </div>
       <div className="flex items-center gap-2">
         {action}

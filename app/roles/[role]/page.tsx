@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { RoleRoutePage } from "@/components/workflow/role-routes";
-import { listProjects } from "@/lib/projects";
+import { listProjectsForPage } from "@/lib/projects";
 import { getRoleRoute, roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function RolePage({
     notFound();
   }
 
-  const projects = await listProjects();
+  const { projects, dataUnavailable } = await listProjectsForPage();
 
-  return <RoleRoutePage role={route.role} projects={projects} />;
+  return <RoleRoutePage role={route.role} projects={projects} dataUnavailable={dataUnavailable} />;
 }

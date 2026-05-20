@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Pencil, Send } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import {
   completeFiberPlanningAction,
   decideFinanceWorkflowAction,
@@ -11,56 +11,22 @@ import {
   FiberPlanningForm,
   PreparedBcForm,
 } from "@/components/workflow/pboq-workflow-forms";
+import { FinanceDecisionForm } from "@/components/workflow/finance-decision-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { getProject } from "@/lib/projects";
+import {
+  canEditProject,
+  getProject,
+  hasPboqDocumentAttachment,
+  isAccountManagerBcPreparationStage,
+} from "@/lib/projects";
 import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
 function money(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
-}
-
-function shortDate(value: string | null) {
-  if (!value) return "Not set";
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
-function FinanceDecisionForm({
-  action,
-  decision,
-  label,
-  notesPlaceholder,
-  variant = "secondary",
-}: {
-  action: (formData: FormData) => void | Promise<void>;
-  decision: string;
-  label: string;
-  notesPlaceholder: string;
-  variant?: "default" | "secondary" | "warning";
-}) {
-  return (
-    <form action={action} className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-white p-3">
-      <input type="hidden" name="decision" value={decision} />
-      <Textarea name="notes" placeholder={notesPlaceholder} />
-      <Button type="submit" variant={variant} size="sm">
-        {decision === "approve" ? (
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-        ) : (
-          <Send className="h-4 w-4" aria-hidden="true" />
-        )}
-        {label}
-      </Button>
-    </form>
-  );
 }
 
 export default async function ProjectDetailPage({
@@ -93,12 +59,10 @@ export default async function ProjectDetailPage({
   const prepareBcAction = prepareBusinessCaseFromPboqAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
   const isFiberPlanningStage = project.roleQueue === "Fiber Planning Team";
-  const canEditProject = project.roleQueue !== "Fiber Planning Team";
-  const isAccountManagerBcStage =
-    project.roleQueue === "Account Manager" &&
-    project.state === "Business Case Prepared" &&
-    project.pboqRequest?.completedAt &&
-    project.decision === "PENDING";
+  const showEditProject = canEditProject(project);
+  const isAccountManagerBcStage = isAccountManagerBcPreparationStage(project);
+  const showPboqRequestSummary =
+    !isFiberPlanningStage && !hasPboqDocumentAttachment(project);
   const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
   const dashboardHref = roleRoute?.href ?? "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
@@ -126,7 +90,7 @@ export default async function ProjectDetailPage({
                 Projects
               </Link>
             </Button>
-            {canEditProject ? (
+            {showEditProject ? (
               <Button asChild size="sm">
                 <Link href={`/projects/${project.id}/edit`}>
                   <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -140,14 +104,14 @@ export default async function ProjectDetailPage({
       <div className="mx-auto max-w-6xl space-y-4 px-6 pb-8 pt-6">
         {fiberPlanningError ? (
           <div
-            className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+            className="rounded-md border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-surface)] px-4 py-3 text-sm text-[color:var(--color-danger-text)]"
             role="alert"
           >
             {fiberPlanningError}
           </div>
         ) : null}
         {query.submitted === "bc" ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
             BC submitted and routed according to the approval rules.
           </div>
         ) : null}
@@ -184,60 +148,7 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
         </section>
-        {!isFiberPlanningStage ? (
-          <Card>
-            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-              <CardTitle>{project.customer}</CardTitle>
-              <p className="font-mono text-xs text-[color:var(--color-muted)]">{project.id}</p>
-            </CardHeader>
-            <CardContent className="grid gap-4 p-4 md:grid-cols-3">
-              {[
-                ["Title", project.title],
-                ["Site Name", project.siteName],
-                ["Site Coordinates", project.siteCoordinates],
-                ["Required Service", project.requiredService],
-                ["Capacity", project.capacity],
-                ["Date Requested", shortDate(project.dateRequested)],
-                ["Sales Requestor", project.salesRequestor],
-                ["Lead Network Planner", project.leadNetworkPlanner],
-                ["Design & Plan Date", shortDate(project.designPlanDate)],
-                ["Region", project.region],
-                ["Owner", project.owner],
-                ["Opportunity MRR", money(project.opportunityMrr)],
-                ["Opportunity NRR", money(project.opportunityNrr)],
-                ["Contract Term", `${project.contractTermMonths} months`],
-                ["Solution Architecture", project.solutionArchitectureName],
-                ["Solution Engineer", project.solutionEngineerName],
-                ["Lifecycle Stage", project.state],
-                ["Role Queue", project.roleQueue],
-                ["BC Type", project.type],
-                ["IRR", `${project.irr}%`],
-                ["Payback", `${project.payback} months`],
-                ["Capex", money(project.capex)],
-                ["Approved Budget", money(project.approvedBudget)],
-                ["Actual Spend", money(project.actualSpend)],
-                ["Total MRR", money(project.totalMrr)],
-                ["Total MRC", money(project.totalMrc)],
-                ["Total NRC", money(project.totalNrc)],
-                ["Total NRR", money(project.totalNrr)],
-                ["Variance", `${project.variance}%`],
-                ["Survey Deviation", `${project.surveyDeviation}%`],
-                ["Due", project.due],
-                ["Revisions", project.revisions.toString()],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
-                  <p className="mt-2 font-medium">{value}</p>
-                </div>
-              ))}
-              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">Decision</p>
-                <Badge className="mt-2" variant="info">{project.decision}</Badge>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-        {!isFiberPlanningStage ? (
+        {showPboqRequestSummary ? (
           <Card>
             <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
               <CardTitle>PBOQ Request</CardTitle>
@@ -273,17 +184,12 @@ export default async function ProjectDetailPage({
                 Generate the PBOQ cost pack with build, material, and wayleave costs.
               </p>
             </div>
-            <FiberPlanningForm action={fiberPlanningAction} />
+            <FiberPlanningForm action={fiberPlanningAction} projectId={project.id} />
           </section>
         ) : null}
         {isAccountManagerBcStage ? (
           <section className="space-y-3">
-            <div>
-              <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Prepare Business Case</h2>
-              <p className="text-sm text-[color:var(--color-muted)]">
-                Use the Fiber Planning PBOQ costs to prepare and route the BC.
-              </p>
-            </div>
+            <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Prepare Business Case</h2>
             <PreparedBcForm action={prepareBcAction} project={project} />
           </section>
         ) : null}
@@ -301,6 +207,7 @@ export default async function ProjectDetailPage({
                 decision="approve"
                 label="Approve to Sales Operations"
                 notesPlaceholder="Optional approval notes"
+                projectId={project.id}
               />
               <FinanceDecisionForm
                 action={financeAction}
@@ -308,6 +215,7 @@ export default async function ProjectDetailPage({
                 label="Reject and Escalate to CFO"
                 notesPlaceholder="Explain why CFO review is needed"
                 variant="warning"
+                projectId={project.id}
               />
               <FinanceDecisionForm
                 action={financeAction}
@@ -315,6 +223,7 @@ export default async function ProjectDetailPage({
                 label="Reject and Ask Solutions Architect"
                 notesPlaceholder="Question for the Solutions Architect"
                 variant="warning"
+                projectId={project.id}
               />
               <FinanceDecisionForm
                 action={financeAction}
@@ -322,88 +231,86 @@ export default async function ProjectDetailPage({
                 label="Reject and Ask Solutions Engineer"
                 notesPlaceholder="Question for the Solutions Engineer"
                 variant="warning"
+                projectId={project.id}
               />
             </CardContent>
           </Card>
         ) : null}
-        <Card>
-          <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-            <CardTitle>{project.links.length > 0 ? "BC Link Items" : "PBOQ Cost Lines"}</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            {project.links.length > 0 ? (
+        {project.links.length > 0 ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>BC Link Items</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
               <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="border-b border-[color:var(--color-border)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
-                  <tr>
-                    {["Link", "Material", "Labor", "Wayleave", "MRR", "MRC", "NRC", "NRR", "Evidence"].map((label) => (
-                      <th key={label} className="px-3 py-3 font-medium">
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[color:var(--color-border)]">
-                  {project.links.map((link) => (
-                    <tr key={link.id}>
-                      <td className="px-3 py-3 font-medium">{link.linkName}</td>
-                      <td className="px-3 py-3">{money(link.material)}</td>
-                      <td className="px-3 py-3">{money(link.labor)}</td>
-                      <td className="px-3 py-3">{money(link.wayleave)}</td>
-                      <td className="px-3 py-3">{money(link.mrr)}</td>
-                      <td className="px-3 py-3">{money(link.mrc)}</td>
-                      <td className="px-3 py-3">{money(link.nrc)}</td>
-                      <td className="px-3 py-3">{money(link.nrr)}</td>
-                      <td className="px-3 py-3">
-                        <Badge variant={link.evidenceDocumentId ? "info" : "warning"}>
-                          {link.evidenceDocumentId ? "Attached" : "Missing"}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                  {project.links.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-4 text-[color:var(--color-muted)]" colSpan={9}>
-                        No link items recorded.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left text-sm">
+                <table className="w-full min-w-[1200px] text-left text-sm">
                   <thead className="border-b border-[color:var(--color-border)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
                     <tr>
-                      {["Link", "Build", "Material", "Wayleave", "Notes"].map((label) => (
-                        <th key={label} className="px-3 py-3 font-medium">{label}</th>
+                      {[
+                        "Link",
+                        "Service",
+                        "Technology",
+                        "Onnet/Offnet",
+                        "Source",
+                        "New Build",
+                        "Provisioning",
+                        "Material",
+                        "Wayleave",
+                        "NRC",
+                        "MRC",
+                        "MRR",
+                        "NRR",
+                        "Onnet Cap.",
+                        "Offnet Cap.",
+                        "Evidence",
+                      ].map((label) => (
+                        <th key={label} className="px-3 py-3 font-medium">
+                          {label}
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[color:var(--color-border)]">
-                    {project.pboqRequest?.costLines.map((line) => (
-                      <tr key={line.id}>
-                        <td className="px-3 py-3 font-medium">{line.linkName}</td>
-                        <td className="px-3 py-3">{money(line.build)}</td>
-                        <td className="px-3 py-3">{money(line.material)}</td>
-                        <td className="px-3 py-3">{money(line.wayleave)}</td>
-                        <td className="px-3 py-3">{line.notes || "-"}</td>
-                      </tr>
-                    ))}
-                    {(project.pboqRequest?.costLines.length ?? 0) === 0 ? (
-                      <tr>
-                        <td className="px-3 py-4 text-[color:var(--color-muted)]" colSpan={5}>
-                          No PBOQ cost lines recorded.
+                    {project.links.map((link) => (
+                      <tr key={link.id}>
+                        <td className="px-3 py-3 font-medium">{link.linkName}</td>
+                        <td className="px-3 py-3">{link.service || "—"}</td>
+                        <td className="px-3 py-3">{link.technology || "—"}</td>
+                        <td className="px-3 py-3">{link.onnetOffnet ?? "—"}</td>
+                        <td className="px-3 py-3">{link.costSource ?? "—"}</td>
+                        <td className="px-3 py-3">{money(link.newBuildCost)}</td>
+                        <td className="px-3 py-3">{money(link.provisioningCost)}</td>
+                        <td className="px-3 py-3">{money(link.materialCost)}</td>
+                        <td className="px-3 py-3">{money(link.wayleaveCost)}</td>
+                        <td className="px-3 py-3">{money(link.nrc)}</td>
+                        <td className="px-3 py-3">{money(link.mrc)}</td>
+                        <td className="px-3 py-3">{money(link.mrr)}</td>
+                        <td className="px-3 py-3">{money(link.nrr)}</td>
+                        <td className="px-3 py-3">{link.onnetCapacity || "—"}</td>
+                        <td className="px-3 py-3">{link.offnetCapacity || "—"}</td>
+                        <td className="px-3 py-3">
+                          <Badge variant={link.evidenceDocumentId ? "info" : "warning"}>
+                            {link.evidenceDocumentId ? "Attached" : "Missing"}
+                          </Badge>
                         </td>
                       </tr>
-                    ) : null}
+                    ))}
                   </tbody>
                 </table>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ) : null}
+        {project.projectExecutiveSummary ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>Project Executive Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 text-sm text-[color:var(--color-muted-strong)]">
+              {project.projectExecutiveSummary}
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
     </AdminShell>
   );

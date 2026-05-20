@@ -1,6 +1,8 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
@@ -20,6 +22,17 @@ import {
   workflowAssignments,
 } from "@/lib/db/schema";
 import {
+  preparedBcDraftSchema,
+  type PreparedBcDraft,
+  type PreparedBcDraftLink,
+} from "@/lib/project-lifecycle-storage";
+import {
+  linkCostSourceValues,
+  linkOnnetOffnetValues,
+  type LinkCostSource,
+  type LinkOnnetOffnet,
+} from "@/lib/projects-types";
+import {
   deriveDecision,
   roles,
   workflowTransitions,
@@ -29,6 +42,9 @@ import {
   type Role,
   type WorkflowState,
 } from "@/lib/workflow";
+
+export type { PreparedBcDraft, PreparedBcDraftLink };
+export { preparedBcDraftSchema };
 
 type DbRole = (typeof users.$inferSelect)["role"];
 type DbStatus = (typeof opportunities.$inferSelect)["status"];
@@ -172,16 +188,58 @@ export const projectInputSchema = z.object({
 
 export type ProjectInput = z.infer<typeof projectInputSchema>;
 
+export {
+  linkCostSourceValues,
+  linkOnnetOffnetValues,
+  type LinkCostSource,
+  type LinkOnnetOffnet,
+} from "@/lib/projects-types";
+
+const linkOnnetOffnetToDb: Record<LinkOnnetOffnet, "ONNET" | "OFFNET"> = {
+  Onnet: "ONNET",
+  Offnet: "OFFNET",
+};
+
+const linkOnnetOffnetFromDb: Record<"ONNET" | "OFFNET", LinkOnnetOffnet> = {
+  ONNET: "Onnet",
+  OFFNET: "Offnet",
+};
+
+const linkCostSourceToDb: Record<
+  LinkCostSource,
+  "PBOQ" | "ACTUAL_SURVEY" | "THIRD_PARTY_QUOTE"
+> = {
+  PBOQ: "PBOQ",
+  "Actual Survey": "ACTUAL_SURVEY",
+  "3rd Party Quote": "THIRD_PARTY_QUOTE",
+};
+
+const linkCostSourceFromDb: Record<
+  "PBOQ" | "ACTUAL_SURVEY" | "THIRD_PARTY_QUOTE",
+  LinkCostSource
+> = {
+  PBOQ: "PBOQ",
+  ACTUAL_SURVEY: "Actual Survey",
+  THIRD_PARTY_QUOTE: "3rd Party Quote",
+};
+
 export const bcLinkInputSchema = z.object({
   linkName: z.string().min(1),
-  material: z.coerce.number().nonnegative(),
-  labor: z.coerce.number().nonnegative(),
-  wayleave: z.coerce.number().nonnegative(),
+  service: z.string().min(1),
+  technology: z.string().min(1),
+  onnetOffnet: z.enum(linkOnnetOffnetValues),
+  costSource: z.enum(linkCostSourceValues),
+  newBuildCost: z.coerce.number().nonnegative(),
+  provisioningCost: z.coerce.number().nonnegative(),
+  materialCost: z.coerce.number().nonnegative(),
+  wayleaveCost: z.coerce.number().nonnegative(),
   mrr: z.coerce.number().nonnegative(),
   mrc: z.coerce.number().nonnegative(),
   nrc: z.coerce.number().nonnegative(),
   nrr: z.coerce.number().nonnegative(),
-  evidenceAttachmentIndex: z.number().int().nonnegative(),
+  onnetCapacity: z.string().optional(),
+  offnetCapacity: z.string().optional(),
+  evidenceAttachmentIndex: z.number().int().nonnegative().optional(),
 });
 
 export const bcSubmissionInputSchema = z.object({
@@ -198,9 +256,19 @@ export const bcSubmissionInputSchema = z.object({
   subsidy: z.coerce.number().nonnegative(),
   approvedBudget: z.coerce.number().nonnegative(),
   links: z.array(bcLinkInputSchema).min(1),
+  accountNumber: z.string().min(1),
+  contractTermMonths: z.coerce.number().int().positive(),
+  projectExecutiveSummary: z.string().min(10),
   attachments: z.array(
     z.object({
-      type: z.enum(["BC_TEMPLATE", "PBOQ", "ORDER_FORM", "ACTUAL_SURVEY_QUOTE"]),
+      type: z.enum([
+        "LSO",
+        "BC_TEMPLATE",
+        "PBOQ",
+        "ACTUAL_SURVEY_QUOTE",
+        "CONTRACTOR_QUOTE",
+        "ORDER_FORM",
+      ]),
       name: z.string().min(1),
       mimeType: z.string().min(1),
       sizeBytes: z.number().int().positive(),
@@ -280,55 +348,33 @@ export const fiberPlanningInputSchema = z.object({
     sizeBytes: z.number().int().positive(),
     storageKey: z.string().min(1),
   }),
-  summaryProofFile: z
-    .object({
-      type: z.literal("PBOQ_SUMMARY_PROOF"),
-      name: z.string().min(1),
-      mimeType: z.string().min(1),
-      sizeBytes: z.number().int().positive(),
-      storageKey: z.string().min(1),
-    })
-    .optional(),
-  buildProofFile: z
-    .object({
-      type: z.literal("PBOQ_BUILD_PROOF"),
-      name: z.string().min(1),
-      mimeType: z.string().min(1),
-      sizeBytes: z.number().int().positive(),
-      storageKey: z.string().min(1),
-    })
-    .optional(),
-  materialProofFile: z
-    .object({
-      type: z.literal("PBOQ_MATERIAL_PROOF"),
-      name: z.string().min(1),
-      mimeType: z.string().min(1),
-      sizeBytes: z.number().int().positive(),
-      storageKey: z.string().min(1),
-    })
-    .optional(),
-  wayleaveProofFile: z
-    .object({
-      type: z.literal("PBOQ_WAYLEAVE_PROOF"),
-      name: z.string().min(1),
-      mimeType: z.string().min(1),
-      sizeBytes: z.number().int().positive(),
-      storageKey: z.string().min(1),
-    })
-    .optional(),
 });
 
 export type FiberPlanningInput = z.infer<typeof fiberPlanningInputSchema>;
 
 export const preparedBcInputSchema = z.object({
+  customerName: z.string().min(2),
+  accountNumber: z.string().min(1),
+  opportunityNumber: z.string().min(2),
+  accountManagerName: z.string().min(2),
   solutionArchitectureName: z.string().min(2),
   solutionEngineerName: z.string().min(2),
+  contractTermMonths: z.coerce.number().int().positive(),
+  projectExecutiveSummary: z.string().min(10),
   type: z.enum(["Ordinary BC", "Margin Analysis BC"]),
   irr: z.coerce.number(),
   payback: z.coerce.number().int().positive(),
   capex: z.coerce.number().nonnegative(),
   subsidy: z.coerce.number().nonnegative(),
   approvedBudget: z.coerce.number().nonnegative(),
+  links: z.array(bcLinkInputSchema).min(1),
+  lsoAttachment: z.object({
+    type: z.literal("LSO"),
+    name: z.string().min(1),
+    mimeType: z.string().min(1),
+    sizeBytes: z.number().int().positive(),
+    storageKey: z.string().min(1),
+  }),
   bcTemplate: z.object({
     type: z.literal("BC_TEMPLATE"),
     name: z.string().min(1),
@@ -336,22 +382,48 @@ export const preparedBcInputSchema = z.object({
     sizeBytes: z.number().int().positive(),
     storageKey: z.string().min(1),
   }),
-  orderForm: z.object({
-    type: z.literal("ORDER_FORM"),
-    name: z.string().min(1),
-    mimeType: z.string().min(1),
-    sizeBytes: z.number().int().positive(),
-    storageKey: z.string().min(1),
-  }),
+  pboqOrSurveyAttachment: z
+    .object({
+      type: z.enum(["PBOQ", "ACTUAL_SURVEY_QUOTE"]),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    })
+    .optional(),
+  thirdPartyQuotesAttachment: z
+    .object({
+      type: z.literal("CONTRACTOR_QUOTE"),
+      name: z.string().min(1),
+      mimeType: z.string().min(1),
+      sizeBytes: z.number().int().positive(),
+      storageKey: z.string().min(1),
+    })
+    .optional(),
+  linkEvidenceAttachments: z
+    .array(
+      z.object({
+        type: z.enum(["PBOQ", "ACTUAL_SURVEY_QUOTE", "CONTRACTOR_QUOTE"]),
+        name: z.string().min(1),
+        mimeType: z.string().min(1),
+        sizeBytes: z.number().int().positive(),
+        storageKey: z.string().min(1),
+      }),
+    )
+    .default([]),
 });
 
 export type PreparedBcInput = z.infer<typeof preparedBcInputSchema>;
+
 export type BcDraftInput = {
   opportunityNumber: string;
   customerName: string;
+  accountNumber: string;
   solutionArchitectureName: string;
   solutionEngineerName: string;
   accountManagerName: string;
+  contractTermMonths: number;
+  projectExecutiveSummary: string;
   region: string;
   type: BusinessCaseType;
   irr: number;
@@ -359,32 +431,100 @@ export type BcDraftInput = {
   capex: number;
   subsidy: number;
   approvedBudget: number;
-  links: Array<{
-    linkName: string;
-    material: number;
-    labor: number;
-    wayleave: number;
-    mrr: number;
-    mrc: number;
-    nrc: number;
-    nrr: number;
-    evidenceAttachmentIndex: number;
-  }>;
+  links: Array<z.infer<typeof bcLinkInputSchema> & { evidenceAttachmentIndex?: number }>;
   attachments: BcSubmissionInput["attachments"];
 };
 
 export type ProjectLinkRecord = {
   id: string;
   linkName: string;
-  material: number;
-  labor: number;
-  wayleave: number;
+  service: string;
+  technology: string;
+  onnetOffnet: LinkOnnetOffnet | null;
+  costSource: LinkCostSource | null;
+  newBuildCost: number;
+  provisioningCost: number;
+  materialCost: number;
+  wayleaveCost: number;
   mrr: number;
   mrc: number;
   nrc: number;
   nrr: number;
+  onnetCapacity: string | null;
+  offnetCapacity: string | null;
   evidenceDocumentId: string | null;
 };
+
+function linkNrcTotal(link: {
+  newBuildCost: number;
+  provisioningCost: number;
+  materialCost: number;
+  wayleaveCost: number;
+}) {
+  return link.newBuildCost + link.provisioningCost + link.materialCost + link.wayleaveCost;
+}
+
+function mapLinkInputToRecord(
+  link: z.infer<typeof bcLinkInputSchema>,
+  evidenceDocumentId: string | null,
+  id = createId(),
+): ProjectLinkRecord {
+  const newBuildCost = link.newBuildCost;
+  const provisioningCost = link.provisioningCost;
+  const materialCost = link.materialCost;
+  const wayleaveCost = link.wayleaveCost;
+  const computedNrc = linkNrcTotal({
+    newBuildCost,
+    provisioningCost,
+    materialCost,
+    wayleaveCost,
+  });
+
+  return {
+    id,
+    linkName: link.linkName,
+    service: link.service,
+    technology: link.technology,
+    onnetOffnet: link.onnetOffnet,
+    costSource: link.costSource,
+    newBuildCost,
+    provisioningCost,
+    materialCost,
+    wayleaveCost,
+    mrr: link.mrr,
+    mrc: link.mrc,
+    nrc: link.nrc > 0 ? link.nrc : computedNrc,
+    nrr: link.nrr,
+    onnetCapacity: link.onnetCapacity ?? null,
+    offnetCapacity: link.offnetCapacity ?? null,
+    evidenceDocumentId,
+  };
+}
+
+function mapLinkRecordToDbInsert(
+  businessCaseId: string,
+  link: ProjectLinkRecord,
+) {
+  return {
+    businessCaseId,
+    linkName: link.linkName,
+    service: link.service,
+    technology: link.technology,
+    onnetOffnet: link.onnetOffnet ? linkOnnetOffnetToDb[link.onnetOffnet] : null,
+    costSource: link.costSource ? linkCostSourceToDb[link.costSource] : null,
+    material: toNumeric(link.materialCost),
+    labor: toNumeric(link.newBuildCost),
+    provisioningCost: toNumeric(link.provisioningCost),
+    wayleave: toNumeric(link.wayleaveCost),
+    mrr: toNumeric(link.mrr),
+    mrc: toNumeric(link.mrc),
+    nrc: toNumeric(link.nrc),
+    nrr: toNumeric(link.nrr),
+    onnetCapacity: link.onnetCapacity,
+    offnetCapacity: link.offnetCapacity,
+    evidenceDocumentId: link.evidenceDocumentId,
+  };
+}
 
 export type ProjectDocumentRecord = {
   id: string;
@@ -416,6 +556,7 @@ export type PboqRequestRecord = {
   fiberPlanningNotes: string | null;
   completedAt: string | null;
   costLines: PboqCostLineRecord[];
+  bcPreparationDraft?: PreparedBcDraft | null;
 };
 
 export type ProjectRecord = ProjectInput & {
@@ -428,8 +569,10 @@ export type ProjectRecord = ProjectInput & {
   leadNetworkPlanner: string;
   dateRequested: string;
   designPlanDate: string | null;
+  accountNumber: string;
   solutionArchitectureName: string;
   solutionEngineerName: string;
+  projectExecutiveSummary: string;
   opportunityMrr: number;
   opportunityNrr: number;
   contractTermMonths: number;
@@ -453,6 +596,33 @@ export type FinanceDecision =
   | "reject-escalate-cfo"
   | "reject-question-architect"
   | "reject-question-engineer";
+
+export function isAccountManagerBcPreparationStage(project: ProjectRecord) {
+  return (
+    project.roleQueue === "Account Manager" &&
+    project.state === "Business Case Prepared" &&
+    project.decision === "PENDING" &&
+    Boolean(project.pboqRequest?.completedAt)
+  );
+}
+
+export function canEditProject(project: ProjectRecord) {
+  if (project.roleQueue === "Fiber Planning Team") {
+    return false;
+  }
+
+  if (isAccountManagerBcPreparationStage(project)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function hasPboqDocumentAttachment(project: ProjectRecord) {
+  return project.documents.some(
+    (document) => document.type === "PBOQ" || document.type === "ACTUAL_SURVEY_QUOTE",
+  );
+}
 
 function dbNumber(value: unknown) {
   return Number(value ?? 0);
@@ -497,6 +667,663 @@ async function findOrCreateUser(name: string, role: Role) {
 
 function buildReference() {
   return `BC-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+function shouldUseLocalProjectStorage() {
+  return process.env.PROJECT_STORAGE !== "database";
+}
+
+function localProjectStoragePath() {
+  return (
+    process.env.PROJECT_LOCAL_STORAGE_FILE ??
+    path.join(process.cwd(), ".data", "projects.json")
+  );
+}
+
+async function readLocalProjects(): Promise<ProjectRecord[]> {
+  try {
+    const contents = await readFile(localProjectStoragePath(), "utf8");
+    const parsed = JSON.parse(contents);
+
+    return Array.isArray(parsed) ? (parsed as ProjectRecord[]) : [];
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function writeLocalProjects(projects: ProjectRecord[]) {
+  const filePath = localProjectStoragePath();
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(
+    filePath,
+    `${JSON.stringify(
+      projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+async function updateLocalProjects(
+  updater: (projects: ProjectRecord[]) => ProjectRecord[] | Promise<ProjectRecord[]>,
+) {
+  const projects = await readLocalProjects();
+  const updatedProjects = await updater(projects);
+  await writeLocalProjects(updatedProjects);
+  return updatedProjects;
+}
+
+function localDocument(
+  attachment: {
+    type: DbDocumentType;
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+  createdAt = new Date().toISOString(),
+): ProjectDocumentRecord {
+  return {
+    id: createId(),
+    type: attachment.type,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+    createdAt,
+  };
+}
+
+function localDecision(input: Pick<ProjectInput, "irr" | "payback" | "subsidy" | "capex">) {
+  return deriveDecision({
+    irr: input.irr,
+    paybackMonths: input.payback,
+    subsidyRequirement: input.subsidy,
+    capex: input.capex,
+  }).decision;
+}
+
+function localVariance(actualSpend: number, approvedBudget: number) {
+  if (approvedBudget === 0) return 0;
+
+  return Number((((actualSpend - approvedBudget) / approvedBudget) * 100).toFixed(1));
+}
+
+function createLocalProjectRecord(
+  input: ProjectInput,
+  overrides: Partial<ProjectRecord> = {},
+): ProjectRecord {
+  const now = new Date().toISOString();
+  const id = overrides.id ?? buildReference();
+  const approvedBudget = overrides.approvedBudget ?? input.approvedBudget;
+  const actualSpend = overrides.actualSpend ?? input.actualSpend;
+  const links = overrides.links ?? [];
+  const opportunityMrr =
+    overrides.opportunityMrr ?? links.reduce((total, link) => total + link.mrr, 0);
+  const opportunityNrr =
+    overrides.opportunityNrr ?? links.reduce((total, link) => total + link.nrr, 0);
+
+  return {
+    id,
+    customer: input.customer,
+    title: input.title,
+    siteName: overrides.siteName ?? input.title,
+    siteCoordinates: overrides.siteCoordinates ?? "",
+    requiredService: overrides.requiredService ?? "Unspecified",
+    capacity: overrides.capacity ?? "",
+    salesRequestor: overrides.salesRequestor ?? input.owner,
+    leadNetworkPlanner: overrides.leadNetworkPlanner ?? "Unassigned",
+    dateRequested: overrides.dateRequested ?? now,
+    designPlanDate: overrides.designPlanDate ?? null,
+    region: input.region,
+    owner: input.owner,
+    accountNumber: overrides.accountNumber ?? "",
+    solutionArchitectureName: overrides.solutionArchitectureName ?? "Unassigned",
+    solutionEngineerName: overrides.solutionEngineerName ?? "Unassigned",
+    projectExecutiveSummary: overrides.projectExecutiveSummary ?? "",
+    opportunityMrr,
+    opportunityNrr,
+    contractTermMonths: overrides.contractTermMonths ?? 12,
+    pboqRequest: overrides.pboqRequest,
+    links,
+    documents: overrides.documents ?? [],
+    totalMrr: overrides.totalMrr ?? (links.reduce((total, link) => total + link.mrr, 0) || opportunityMrr),
+    totalMrc: overrides.totalMrc ?? links.reduce((total, link) => total + link.mrc, 0),
+    totalNrc: overrides.totalNrc ?? links.reduce((total, link) => total + link.nrc, 0),
+    totalNrr: overrides.totalNrr ?? (links.reduce((total, link) => total + link.nrr, 0) || opportunityNrr),
+    state: input.state,
+    roleQueue: input.roleQueue,
+    type: input.type,
+    irr: input.irr,
+    payback: input.payback,
+    capex: input.capex,
+    subsidy: input.subsidy,
+    approvedBudget,
+    actualSpend,
+    decision: overrides.decision ?? localDecision(input),
+    certificateIssued: overrides.certificateIssued ?? false,
+    variance: overrides.variance ?? localVariance(actualSpend, approvedBudget),
+    surveyDeviation: input.surveyDeviation,
+    revisions: overrides.revisions ?? 0,
+    due: input.due,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+  };
+}
+
+function updateLocalProjectRecord(project: ProjectRecord, input: ProjectInput): ProjectRecord {
+  return {
+    ...project,
+    ...createLocalProjectRecord(input, {
+      id: project.id,
+      siteName: project.siteName,
+      siteCoordinates: project.siteCoordinates,
+      requiredService: project.requiredService,
+      capacity: project.capacity,
+      salesRequestor: project.salesRequestor,
+      leadNetworkPlanner: project.leadNetworkPlanner,
+      dateRequested: project.dateRequested,
+      designPlanDate: project.designPlanDate,
+      solutionArchitectureName: project.solutionArchitectureName,
+      solutionEngineerName: project.solutionEngineerName,
+      accountNumber: project.accountNumber,
+      projectExecutiveSummary: project.projectExecutiveSummary,
+      opportunityMrr: project.opportunityMrr,
+      opportunityNrr: project.opportunityNrr,
+      contractTermMonths: project.contractTermMonths,
+      pboqRequest: project.pboqRequest,
+      links: project.links,
+      documents: project.documents,
+      certificateIssued: project.certificateIssued,
+      revisions: project.revisions + 1,
+      createdAt: project.createdAt,
+    }),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function localRouteForPreparedBusinessCase(input: {
+  type: BusinessCaseType;
+  decision: DecisionOutput;
+}): { state: WorkflowState; role: Role; autoApproved: boolean } {
+  if (
+    input.type === "Ordinary BC" &&
+    (input.decision === "PROCEED" ||
+      input.decision === "PROCEED WITH SUBSIDY DISCLOSURE")
+  ) {
+    return {
+      state: "Sales Operations Validation",
+      role: "Sales Operations",
+      autoApproved: true,
+    };
+  }
+
+  return {
+    state: "Finance / CFO Approval",
+    role: "BC Analyst / Finance",
+    autoApproved: false,
+  };
+}
+
+function localFinanceRoute(decision: FinanceDecision): { state: WorkflowState; role: Role } {
+  if (decision === "approve") {
+    return { state: "Sales Operations Validation", role: "Sales Operations" };
+  }
+
+  if (decision === "reject-escalate-cfo") {
+    return { state: "Finance / CFO Approval", role: "CFO" };
+  }
+
+  if (decision === "reject-question-architect") {
+    return { state: "Business Case Prepared", role: "Solutions Architect" };
+  }
+
+  return { state: "Business Case Prepared", role: "Solutions Engineer" };
+}
+
+async function localListProjects() {
+  return readLocalProjects();
+}
+
+async function localGetProject(id: string) {
+  return (await readLocalProjects()).find((project) => project.id === id);
+}
+
+async function localCreateProject(input: ProjectInput) {
+  const project = createLocalProjectRecord(projectInputSchema.parse(input));
+  await updateLocalProjects((projects) => [project, ...projects]);
+  return project;
+}
+
+async function localUpdateProject(id: string, input: ProjectInput) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      updatedProject = updateLocalProjectRecord(project, projectInputSchema.parse(input));
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localCreatePboqRequest(input: PboqRequestInput) {
+  const validated = pboqRequestInputSchema.parse(input);
+  const projects = await readLocalProjects();
+
+  if (projects.some((project) => project.id === validated.opportunityNumber)) {
+    throw new Error("Opportunity number already exists.");
+  }
+
+  const now = new Date().toISOString();
+  const hasExistingPboq = validated.pboqMode === "existing";
+  const pboqDocument = validated.pboqAttachment
+    ? localDocument(validated.pboqAttachment, now)
+    : undefined;
+  const project = createLocalProjectRecord(
+    {
+      customer: validated.customerName,
+      title: validated.siteName,
+      region: validated.region,
+      owner: validated.accountManagerName,
+      state: hasExistingPboq ? "Business Case Prepared" : "PBOQ Request Submitted",
+      roleQueue: hasExistingPboq ? "Account Manager" : "Fiber Planning Team",
+      type: "Ordinary BC",
+      irr: 0,
+      payback: 36,
+      capex: 0,
+      subsidy: 0,
+      approvedBudget: validated.surveyAvailable ? validated.actualSurveyCost : 0,
+      actualSpend: 0,
+      surveyDeviation: 0,
+      due: "Unscheduled",
+    },
+    {
+      id: validated.opportunityNumber,
+      siteName: validated.siteName,
+      siteCoordinates: validated.siteCoordinates,
+      requiredService: validated.requiredService,
+      capacity: validated.capacity,
+      salesRequestor: validated.salesRequestor,
+      leadNetworkPlanner: validated.leadNetworkPlanner,
+      dateRequested: new Date(validated.dateRequested).toISOString(),
+      designPlanDate: new Date(validated.designPlanDate).toISOString(),
+      opportunityMrr: validated.mrr,
+      opportunityNrr: validated.nrr,
+      contractTermMonths: validated.contractTermMonths,
+      totalMrr: validated.mrr,
+      totalNrr: validated.nrr,
+      decision: "PENDING",
+      documents: pboqDocument ? [pboqDocument] : [],
+      pboqRequest: {
+        id: createId(),
+        siteCount: validated.siteCount,
+        routeDistanceKm: validated.routeDistanceKm,
+        surveyBudget: validated.surveyAvailable ? validated.actualSurveyCost : 0,
+        surveyAvailable: validated.surveyAvailable,
+        costSource: validated.surveyAvailable ? "ACTUAL_SURVEY" : "PBOQ_ESTIMATE",
+        actualSurveyCost: validated.actualSurveyCost,
+        notes: validated.notes || null,
+        fiberPlanningNotes: null,
+        completedAt: hasExistingPboq ? now : null,
+        costLines: [],
+      },
+    },
+  );
+
+  await writeLocalProjects([project, ...projects]);
+  return project;
+}
+
+async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput) {
+  const validated = fiberPlanningInputSchema.parse(input);
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+      if (!project.pboqRequest) throw new Error("Project has no PBOQ request.");
+      if (
+        project.state !== "PBOQ Request Submitted" &&
+        project.state !== "Fiber Planning Generates Costs"
+      ) {
+        throw new Error("Project is not in a Fiber Planning stage.");
+      }
+
+      const now = new Date().toISOString();
+      const costLines = validated.lines.map((line) => ({
+        id: createId(),
+        linkName: line.linkName,
+        material: line.material,
+        build: line.build,
+        wayleave: line.wayleave,
+        notes: line.notes || null,
+      }));
+      const totalCost = costLines.reduce(
+        (total, line) => total + line.material + line.build + line.wayleave,
+        0,
+      );
+      const documents = [localDocument(validated.pboqFile, now)];
+
+      updatedProject = {
+        ...project,
+        state: "Business Case Prepared",
+        roleQueue: "Account Manager",
+        capex: Math.max(project.capex, totalCost),
+        approvedBudget: Math.max(project.approvedBudget, totalCost),
+        pboqRequest: {
+          ...project.pboqRequest,
+          surveyBudget: totalCost,
+          fiberPlanningNotes: validated.fiberPlanningNotes || null,
+          completedAt: now,
+          costLines,
+        },
+        documents: [...documents, ...project.documents],
+        updatedAt: now,
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInput) {
+  const validated = preparedBcInputSchema.parse(input);
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+      if (!project.pboqRequest) {
+        throw new Error("PBOQ attachment or request is required before BC preparation.");
+      }
+
+      const now = new Date().toISOString();
+      const decision = deriveDecision({
+        irr: validated.irr,
+        paybackMonths: validated.payback,
+        subsidyRequirement: validated.subsidy,
+        capex: validated.capex,
+      }).decision;
+      const route = localRouteForPreparedBusinessCase({
+        type: validated.type,
+        decision,
+      });
+      const newDocuments = [
+        localDocument(validated.lsoAttachment, now),
+        localDocument(validated.bcTemplate, now),
+        ...(validated.pboqOrSurveyAttachment
+          ? [localDocument(validated.pboqOrSurveyAttachment, now)]
+          : []),
+        ...(validated.thirdPartyQuotesAttachment
+          ? [localDocument(validated.thirdPartyQuotesAttachment, now)]
+          : []),
+        ...validated.linkEvidenceAttachments.map((attachment) => localDocument(attachment, now)),
+      ];
+      const baseDocumentCount =
+        2 +
+        (validated.pboqOrSurveyAttachment ? 1 : 0) +
+        (validated.thirdPartyQuotesAttachment ? 1 : 0);
+      const links = validated.links.map((link) =>
+        mapLinkInputToRecord(
+          link,
+          link.evidenceAttachmentIndex != null && link.evidenceAttachmentIndex >= 0
+            ? newDocuments[baseDocumentCount + link.evidenceAttachmentIndex]?.id ?? null
+            : project.documents.find((document) => document.type === "PBOQ")?.id ?? null,
+        ),
+      );
+
+      updatedProject = {
+        ...project,
+        customer: validated.customerName,
+        owner: validated.accountManagerName,
+        accountNumber: validated.accountNumber,
+        solutionArchitectureName: validated.solutionArchitectureName,
+        solutionEngineerName: validated.solutionEngineerName,
+        projectExecutiveSummary: validated.projectExecutiveSummary,
+        contractTermMonths: validated.contractTermMonths,
+        type: validated.type,
+        irr: validated.irr,
+        payback: validated.payback,
+        capex: validated.capex,
+        subsidy: validated.subsidy,
+        approvedBudget: validated.approvedBudget,
+        decision,
+        state: route.state,
+        roleQueue: route.role,
+        certificateIssued: project.certificateIssued || route.autoApproved,
+        links,
+        totalMrr: links.reduce((total, link) => total + link.mrr, 0),
+        totalMrc: links.reduce((total, link) => total + link.mrc, 0),
+        totalNrc: links.reduce((total, link) => total + link.nrc, 0),
+        totalNrr: links.reduce((total, link) => total + link.nrr, 0),
+        documents: [...newDocuments, ...project.documents],
+        revisions: project.revisions + 1,
+        pboqRequest: project.pboqRequest
+          ? { ...project.pboqRequest, bcPreparationDraft: null }
+          : project.pboqRequest,
+        updatedAt: now,
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localCreateBcSubmission(input: BcSubmissionInput) {
+  const validated = bcSubmissionInputSchema.parse(input);
+  const projects = await readLocalProjects();
+
+  if (projects.some((project) => project.id === validated.opportunityNumber)) {
+    throw new Error("Opportunity number already exists.");
+  }
+
+  const now = new Date().toISOString();
+  const decision = deriveDecision({
+    irr: validated.irr,
+    paybackMonths: validated.payback,
+    subsidyRequirement: validated.subsidy,
+    capex: validated.capex,
+  }).decision;
+  const route = localRouteForPreparedBusinessCase({
+    type: validated.type,
+    decision,
+  });
+  const documents = validated.attachments.map((attachment) => localDocument(attachment, now));
+  const links = validated.links.map((link) =>
+    mapLinkInputToRecord(
+      link,
+      link.evidenceAttachmentIndex != null && link.evidenceAttachmentIndex >= 0
+        ? documents[link.evidenceAttachmentIndex]?.id ?? null
+        : null,
+    ),
+  );
+  const project = createLocalProjectRecord(
+    {
+      customer: validated.customerName,
+      title: `${validated.customerName} BC submission`,
+      region: validated.region,
+      owner: validated.accountManagerName,
+      state: route.state,
+      roleQueue: route.role,
+      type: validated.type,
+      irr: validated.irr,
+      payback: validated.payback,
+      capex: validated.capex,
+      subsidy: validated.subsidy,
+      approvedBudget: validated.approvedBudget,
+      actualSpend: 0,
+      surveyDeviation: 0,
+      due: "Unscheduled",
+    },
+    {
+      id: validated.opportunityNumber,
+      accountNumber: validated.accountNumber,
+      solutionArchitectureName: validated.solutionArchitectureName,
+      solutionEngineerName: validated.solutionEngineerName,
+      projectExecutiveSummary: validated.projectExecutiveSummary,
+      contractTermMonths: validated.contractTermMonths,
+      opportunityMrr: links.reduce((total, link) => total + link.mrr, 0),
+      opportunityNrr: links.reduce((total, link) => total + link.nrr, 0),
+      links,
+      documents,
+      totalMrr: links.reduce((total, link) => total + link.mrr, 0),
+      totalMrc: links.reduce((total, link) => total + link.mrc, 0),
+      totalNrc: links.reduce((total, link) => total + link.nrc, 0),
+      totalNrr: links.reduce((total, link) => total + link.nrr, 0),
+      decision,
+      certificateIssued: route.autoApproved,
+    },
+  );
+
+  await writeLocalProjects([project, ...projects]);
+  return project;
+}
+
+async function localCreateBcDraft(input: BcDraftInput) {
+  const referenceBase = input.opportunityNumber.trim() || buildReference();
+  const projects = await readLocalProjects();
+  const id = projects.some((project) => project.id === referenceBase)
+    ? `${referenceBase}-DRAFT-${randomUUID().slice(0, 4).toUpperCase()}`
+    : referenceBase;
+  const documents = input.attachments.map((attachment) => localDocument(attachment));
+  const links = input.links.map((link) =>
+    mapLinkInputToRecord(
+      link,
+      link.evidenceAttachmentIndex != null && link.evidenceAttachmentIndex >= 0
+        ? documents[link.evidenceAttachmentIndex]?.id ?? null
+        : null,
+    ),
+  );
+  const project = createLocalProjectRecord(
+    {
+      customer: input.customerName.trim() || "Draft Customer",
+      title: `${input.customerName.trim() || "Draft Customer"} draft`,
+      region: input.region.trim() || "Unassigned",
+      owner: input.accountManagerName.trim() || "Current User",
+      state: "Opportunity Created",
+      roleQueue: "Account Manager",
+      type: input.type || "Ordinary BC",
+      irr: Number.isFinite(input.irr) ? input.irr : 0,
+      payback: Number.isFinite(input.payback) && input.payback > 0 ? input.payback : 1,
+      capex: Number.isFinite(input.capex) ? input.capex : 0,
+      subsidy: Number.isFinite(input.subsidy) ? input.subsidy : 0,
+      approvedBudget: Number.isFinite(input.approvedBudget) ? input.approvedBudget : 0,
+      actualSpend: 0,
+      surveyDeviation: 0,
+      due: "Unscheduled",
+    },
+    {
+      id,
+      accountNumber: input.accountNumber.trim(),
+      solutionArchitectureName: input.solutionArchitectureName.trim() || "Unassigned",
+      solutionEngineerName: input.solutionEngineerName.trim() || "Unassigned",
+      projectExecutiveSummary: input.projectExecutiveSummary.trim(),
+      contractTermMonths: input.contractTermMonths,
+      links,
+      documents,
+      totalMrr: links.reduce((total, link) => total + link.mrr, 0),
+      totalMrc: links.reduce((total, link) => total + link.mrc, 0),
+      totalNrc: links.reduce((total, link) => total + link.nrc, 0),
+      totalNrr: links.reduce((total, link) => total + link.nrr, 0),
+    },
+  );
+
+  await writeLocalProjects([project, ...projects]);
+  return project;
+}
+
+async function localDecideFinanceWorkflow(id: string, decision: FinanceDecision) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      const route = localFinanceRoute(decision);
+      updatedProject = {
+        ...project,
+        state: route.state,
+        roleQueue: route.role,
+        certificateIssued: project.certificateIssued || decision === "approve",
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localAdvanceProjectToNextStage(id: string) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      const transition =
+        workflowTransitions.find(
+          (item) => item.from === project.state && item.owner === project.roleQueue,
+        ) ?? workflowTransitions.find((item) => item.from === project.state);
+
+      if (!transition) {
+        throw new Error("Project is already at the final workflow stage.");
+      }
+
+      const nextTransition = workflowTransitions.find((item) => item.from === transition.to);
+      updatedProject = {
+        ...project,
+        state: transition.to,
+        roleQueue: nextTransition?.owner ?? transition.owner,
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localDeleteProject(id: string) {
+  await updateLocalProjects((projects) => projects.filter((project) => project.id !== id));
 }
 
 async function getLatestBusinessCase(opportunityId: string) {
@@ -579,7 +1406,18 @@ async function getOpportunityPboqRequest(
       wayleave: dbNumber(line.wayleave),
       notes: line.notes,
     })),
+    bcPreparationDraft: parsePreparedBcDraftRecord(request.bcPreparationDraft),
   };
+}
+
+function parsePreparedBcDraftRecord(value: unknown): PreparedBcDraft | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const parsed = preparedBcDraftSchema.safeParse(value);
+
+  return parsed.success ? parsed.data : null;
 }
 
 async function hasApprovalCertificate(businessCaseId?: string) {
@@ -609,13 +1447,20 @@ async function getBusinessCaseLinks(businessCaseId?: string): Promise<ProjectLin
   return rows.map((row) => ({
     id: row.id,
     linkName: row.linkName,
-    material: dbNumber(row.material),
-    labor: dbNumber(row.labor),
-    wayleave: dbNumber(row.wayleave),
+    service: row.service ?? "",
+    technology: row.technology ?? "",
+    onnetOffnet: row.onnetOffnet ? linkOnnetOffnetFromDb[row.onnetOffnet] : null,
+    costSource: row.costSource ? linkCostSourceFromDb[row.costSource] : null,
+    newBuildCost: dbNumber(row.labor),
+    provisioningCost: dbNumber(row.provisioningCost),
+    materialCost: dbNumber(row.material),
+    wayleaveCost: dbNumber(row.wayleave),
     mrr: dbNumber(row.mrr),
     mrc: dbNumber(row.mrc),
     nrc: dbNumber(row.nrc),
     nrr: dbNumber(row.nrr),
+    onnetCapacity: row.onnetCapacity,
+    offnetCapacity: row.offnetCapacity,
     evidenceDocumentId: row.evidenceDocumentId,
   }));
 }
@@ -698,8 +1543,10 @@ async function toProjectRecord(
     designPlanDate: opportunity.designPlanDate?.toISOString() ?? null,
     region: opportunity.region,
     owner: accountManager?.name ?? "Unassigned",
+    accountNumber: businessCase?.accountNumber ?? "",
     solutionArchitectureName: businessCase?.solutionArchitectureName ?? "Unassigned",
     solutionEngineerName: businessCase?.solutionEngineerName ?? "Unassigned",
+    projectExecutiveSummary: businessCase?.projectExecutiveSummary ?? "",
     opportunityMrr: dbNumber(opportunity.mrr),
     opportunityNrr: dbNumber(opportunity.nrr),
     contractTermMonths: opportunity.contractTermMonths,
@@ -912,6 +1759,10 @@ function routeForPreparedBusinessCase(input: {
 }
 
 export async function createPboqRequest(input: PboqRequestInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localCreatePboqRequest(input);
+  }
+
   const validated = pboqRequestInputSchema.parse(input);
   const db = getDb();
   const accountManager = await findOrCreateUser(
@@ -1033,6 +1884,10 @@ export async function createPboqRequest(input: PboqRequestInput) {
 }
 
 export async function completeFiberPlanning(id: string, input: FiberPlanningInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localCompleteFiberPlanning(id, input);
+  }
+
   const validated = fiberPlanningInputSchema.parse(input);
   const db = getDb();
   const [opportunity] = await db
@@ -1083,33 +1938,15 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     })),
   );
 
-  const proofDocuments = [
-    validated.summaryProofFile,
-    validated.buildProofFile,
-    validated.materialProofFile,
-    validated.wayleaveProofFile,
-  ].filter((attachment) => attachment != null);
-
-  await db.insert(documents).values([
-    {
-      opportunityId: opportunity.id,
-      uploadedById: actor,
-      type: "PBOQ",
-      name: validated.pboqFile.name,
-      storageKey: validated.pboqFile.storageKey,
-      mimeType: validated.pboqFile.mimeType,
-      sizeBytes: validated.pboqFile.sizeBytes,
-    },
-    ...proofDocuments.map((attachment) => ({
-      opportunityId: opportunity.id,
-      uploadedById: actor,
-      type: attachment.type,
-      name: attachment.name,
-      storageKey: attachment.storageKey,
-      mimeType: attachment.mimeType,
-      sizeBytes: attachment.sizeBytes,
-    })),
-  ]);
+  await db.insert(documents).values({
+    opportunityId: opportunity.id,
+    uploadedById: actor,
+    type: "PBOQ",
+    name: validated.pboqFile.name,
+    storageKey: validated.pboqFile.storageKey,
+    mimeType: validated.pboqFile.mimeType,
+    sizeBytes: validated.pboqFile.sizeBytes,
+  });
 
   await db
     .update(opportunities)
@@ -1161,7 +1998,6 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
     metadata: {
       lineCount: validated.lines.length,
       totalCost,
-      proofDocuments: proofDocuments.length,
       nextRole: "Account Manager",
     },
   });
@@ -1175,7 +2011,22 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
   return project;
 }
 
+/** BC preparation drafts are stored in the browser (localStorage) for now. */
+export async function savePreparedBcDraft(id: string, _draft: PreparedBcDraft) {
+  const project = await getProject(id);
+
+  if (!project) {
+    throw new Error("Project not found.");
+  }
+
+  return project;
+}
+
 export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localPrepareBusinessCaseFromPboq(id, input);
+  }
+
   const validated = preparedBcInputSchema.parse(input);
   const db = getDb();
   const [opportunity] = await db
@@ -1219,6 +2070,8 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
     type: typeToDb[validated.type],
     solutionArchitectureName: validated.solutionArchitectureName,
     solutionEngineerName: validated.solutionEngineerName,
+    accountNumber: validated.accountNumber,
+    projectExecutiveSummary: validated.projectExecutiveSummary,
     irr: toNumeric(validated.irr),
     paybackMonths: validated.payback,
     capex: toNumeric(validated.capex),
@@ -1232,8 +2085,15 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
   });
   const businessCase = await selectBusinessCaseById(db, businessCaseId);
 
+  const attachmentPayload = [
+    validated.lsoAttachment,
+    validated.bcTemplate,
+    ...(validated.pboqOrSurveyAttachment ? [validated.pboqOrSurveyAttachment] : []),
+    ...(validated.thirdPartyQuotesAttachment ? [validated.thirdPartyQuotesAttachment] : []),
+    ...validated.linkEvidenceAttachments,
+  ];
   const createdDocuments = await Promise.all(
-    [validated.bcTemplate, validated.orderForm].map((attachment) =>
+    attachmentPayload.map((attachment) =>
       insertDocument(db, {
         opportunityId: opportunity.id,
         uploadedById: actor,
@@ -1245,43 +2105,46 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
       }),
     ),
   );
+  const documentIds = createdDocuments.map((document) => document.id);
+  const baseDocumentCount =
+    2 +
+    (validated.pboqOrSurveyAttachment ? 1 : 0) +
+    (validated.thirdPartyQuotesAttachment ? 1 : 0);
 
   const pboqDocuments = await db
     .select({ id: documents.id })
     .from(documents)
     .where(and(eq(documents.opportunityId, opportunity.id), eq(documents.type, "PBOQ")))
     .limit(1);
-  const pboqDocumentId = pboqDocuments[0]?.id ?? createdDocuments[0]?.id;
-  const perLinkMrr =
-    pboqRequest.costLines.length === 0
-      ? 0
-      : dbNumber(opportunity.mrr) / pboqRequest.costLines.length;
-  const perLinkNrr =
-    pboqRequest.costLines.length === 0
-      ? 0
-      : dbNumber(opportunity.nrr) / pboqRequest.costLines.length;
+  const defaultEvidenceDocumentId = pboqDocuments[0]?.id ?? documentIds[0] ?? null;
 
-  if (pboqRequest.costLines.length > 0) {
-    await db.insert(businessCaseLinks).values(
-      pboqRequest.costLines.map((line) => ({
-        businessCaseId: businessCase.id,
-        linkName: line.linkName,
-        material: toNumeric(line.material),
-        labor: toNumeric(line.build),
-        wayleave: toNumeric(line.wayleave),
-        mrr: toNumeric(perLinkMrr),
-        mrc: "0",
-        nrc: "0",
-        nrr: toNumeric(perLinkNrr),
-        evidenceDocumentId: pboqDocumentId,
-      })),
-    );
+  await db.insert(businessCaseLinks).values(
+    validated.links.map((link) => {
+      const record = mapLinkInputToRecord(
+        link,
+        link.evidenceAttachmentIndex != null && link.evidenceAttachmentIndex >= 0
+          ? documentIds[baseDocumentCount + link.evidenceAttachmentIndex] ??
+            defaultEvidenceDocumentId
+          : defaultEvidenceDocumentId,
+      );
+
+      return mapLinkRecordToDbInsert(businessCase.id, record);
+    }),
+  );
+
+  if (pboqRequest) {
+    await db
+      .update(pboqRequests)
+      .set({ bcPreparationDraft: null })
+      .where(eq(pboqRequests.id, pboqRequest.id));
   }
 
   await db
     .update(opportunities)
     .set({
       status: route.status,
+      contractTermMonths: validated.contractTermMonths,
+      customerName: validated.customerName,
       updatedAt: new Date(),
     })
     .where(eq(opportunities.id, opportunity.id));
@@ -1329,6 +2192,10 @@ export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcI
 }
 
 export async function createBcSubmission(input: BcSubmissionInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localCreateBcSubmission(input);
+  }
+
   const validated = bcSubmissionInputSchema.parse(input);
   const db = getDb();
   const accountManager = await findOrCreateUser(
@@ -1366,7 +2233,7 @@ export async function createBcSubmission(input: BcSubmissionInput) {
     segment: "Enterprise",
     mrr: toNumeric(validated.links.reduce((total, link) => total + link.mrr, 0)),
     nrr: toNumeric(validated.links.reduce((total, link) => total + link.nrr, 0)),
-    contractTermMonths: 12,
+    contractTermMonths: validated.contractTermMonths,
     accountManagerId: accountManager.id,
     status: route.status,
     priority: "Normal",
@@ -1381,6 +2248,8 @@ export async function createBcSubmission(input: BcSubmissionInput) {
     type: typeToDb[validated.type],
     solutionArchitectureName: validated.solutionArchitectureName,
     solutionEngineerName: validated.solutionEngineerName,
+    accountNumber: validated.accountNumber,
+    projectExecutiveSummary: validated.projectExecutiveSummary,
     irr: toNumeric(validated.irr),
     paybackMonths: validated.payback,
     capex: toNumeric(validated.capex),
@@ -1410,18 +2279,16 @@ export async function createBcSubmission(input: BcSubmissionInput) {
   const documentIds = createdDocuments.map((document) => document.id);
 
   await db.insert(businessCaseLinks).values(
-    validated.links.map((link) => ({
-      businessCaseId: businessCase.id,
-      linkName: link.linkName,
-      material: toNumeric(link.material),
-      labor: toNumeric(link.labor),
-      wayleave: toNumeric(link.wayleave),
-      mrr: toNumeric(link.mrr),
-      mrc: toNumeric(link.mrc),
-      nrc: toNumeric(link.nrc),
-      nrr: toNumeric(link.nrr),
-      evidenceDocumentId: documentIds[link.evidenceAttachmentIndex],
-    })),
+    validated.links.map((link) => {
+      const record = mapLinkInputToRecord(
+        link,
+        link.evidenceAttachmentIndex != null && link.evidenceAttachmentIndex >= 0
+          ? documentIds[link.evidenceAttachmentIndex] ?? null
+          : null,
+      );
+
+      return mapLinkRecordToDbInsert(businessCase.id, record);
+    }),
   );
 
   await db.insert(workflowAssignments).values({
@@ -1471,6 +2338,10 @@ export async function createBcSubmission(input: BcSubmissionInput) {
 }
 
 export async function createBcDraft(input: BcDraftInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localCreateBcDraft(input);
+  }
+
   const db = getDb();
   const accountManagerName = input.accountManagerName.trim() || "Current User";
   const accountManager = await findOrCreateUser(accountManagerName, "Account Manager");
@@ -1511,6 +2382,7 @@ export async function createBcDraft(input: BcDraftInput) {
     opportunityName: `${normalizedInput.customerName} draft`,
     region: normalizedInput.region,
     segment: "Enterprise",
+    contractTermMonths: normalizedInput.contractTermMonths || 12,
     accountManagerId: accountManager.id,
     status: "OPPORTUNITY_CREATED",
     priority: "Normal",
@@ -1525,6 +2397,8 @@ export async function createBcDraft(input: BcDraftInput) {
     type: typeToDb[normalizedInput.type],
     solutionArchitectureName: normalizedInput.solutionArchitectureName,
     solutionEngineerName: normalizedInput.solutionEngineerName,
+    accountNumber: normalizedInput.accountNumber || null,
+    projectExecutiveSummary: normalizedInput.projectExecutiveSummary || null,
     irr: toNumeric(normalizedInput.irr),
     paybackMonths: normalizedInput.payback,
     capex: toNumeric(normalizedInput.capex),
@@ -1554,18 +2428,16 @@ export async function createBcDraft(input: BcDraftInput) {
 
   if (normalizedInput.links.length > 0) {
     await db.insert(businessCaseLinks).values(
-      normalizedInput.links.map((link) => ({
-        businessCaseId: businessCase.id,
-        linkName: link.linkName,
-        material: toNumeric(link.material),
-        labor: toNumeric(link.labor),
-        wayleave: toNumeric(link.wayleave),
-        mrr: toNumeric(link.mrr),
-        mrc: toNumeric(link.mrc),
-        nrc: toNumeric(link.nrc),
-        nrr: toNumeric(link.nrr),
-        evidenceDocumentId: documentIds[link.evidenceAttachmentIndex] ?? null,
-      })),
+      normalizedInput.links.map((link) => {
+        const record = mapLinkInputToRecord(
+          link,
+          link.evidenceAttachmentIndex != null && link.evidenceAttachmentIndex >= 0
+            ? documentIds[link.evidenceAttachmentIndex] ?? null
+            : null,
+        );
+
+        return mapLinkRecordToDbInsert(businessCase.id, record);
+      }),
     );
   }
 
@@ -1599,6 +2471,10 @@ export async function createBcDraft(input: BcDraftInput) {
 }
 
 export async function listProjects() {
+  if (shouldUseLocalProjectStorage()) {
+    return localListProjects();
+  }
+
   const db = getDb();
   const rows = await db.select().from(opportunities).orderBy(desc(opportunities.updatedAt));
   const projects: ProjectRecord[] = [];
@@ -1614,7 +2490,62 @@ export async function listProjects() {
   return projects;
 }
 
+type ProjectListResult = {
+  projects: ProjectRecord[];
+  dataUnavailable: boolean;
+};
+
+function getNestedErrorCode(error: unknown) {
+  let current = error;
+
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+
+    const code = "code" in current ? current.code : undefined;
+
+    if (typeof code === "string") {
+      return code;
+    }
+
+    current = "cause" in current ? current.cause : undefined;
+  }
+
+  return undefined;
+}
+
+function isDatabaseConnectionError(error: unknown) {
+  return ["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "EHOSTUNREACH"].includes(
+    getNestedErrorCode(error) ?? "",
+  );
+}
+
+export async function listProjectsForPage(): Promise<ProjectListResult> {
+  try {
+    return {
+      projects: await listProjects(),
+      dataUnavailable: false,
+    };
+  } catch (error) {
+    if (!isDatabaseConnectionError(error)) {
+      throw error;
+    }
+
+    console.error("Database connection failed while loading projects.", error);
+
+    return {
+      projects: [],
+      dataUnavailable: true,
+    };
+  }
+}
+
 export async function getProject(id: string) {
+  if (shouldUseLocalProjectStorage()) {
+    return localGetProject(id);
+  }
+
   const db = getDb();
   const [opportunity] = await db
     .select()
@@ -1628,6 +2559,10 @@ export async function getProject(id: string) {
 }
 
 export async function createProject(input: ProjectInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localCreateProject(input);
+  }
+
   const db = getDb();
   const accountManager = await findOrCreateUser(input.owner, "Account Manager");
   const opportunityId = createId();
@@ -1659,6 +2594,10 @@ export async function createProject(input: ProjectInput) {
 }
 
 export async function updateProject(id: string, input: ProjectInput) {
+  if (shouldUseLocalProjectStorage()) {
+    return localUpdateProject(id, input);
+  }
+
   const db = getDb();
   const [existing] = await db
     .select()
@@ -1707,6 +2646,10 @@ export async function decideFinanceWorkflow(
   decision: FinanceDecision,
   notes: string,
 ) {
+  if (shouldUseLocalProjectStorage()) {
+    return localDecideFinanceWorkflow(id, decision);
+  }
+
   const db = getDb();
   const [existing] = await db
     .select()
@@ -1795,6 +2738,10 @@ export async function decideFinanceWorkflow(
 }
 
 export async function advanceProjectToNextStage(id: string) {
+  if (shouldUseLocalProjectStorage()) {
+    return localAdvanceProjectToNextStage(id);
+  }
+
   const db = getDb();
   const [existing] = await db
     .select()
@@ -1942,6 +2889,11 @@ function getFinanceRoute(
 }
 
 export async function deleteProject(id: string) {
+  if (shouldUseLocalProjectStorage()) {
+    await localDeleteProject(id);
+    return;
+  }
+
   const db = getDb();
   const [opportunity] = await db
     .select()

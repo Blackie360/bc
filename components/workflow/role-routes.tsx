@@ -7,6 +7,7 @@ import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { RoleChip } from "@/components/workflow/role-chip";
 import {
   Card,
   CardContent,
@@ -113,20 +114,34 @@ function nextTransitionForProject(project: ProjectRecord) {
 function RouteStatus({ transition }: { transition?: Transition }) {
   if (!transition) {
     return (
-      <Badge className="rounded-full border-transparent bg-[#fff4cf] px-2.5 py-1 text-xs font-semibold text-[#a25a00]">
+      <Badge className="rounded-full border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
         Pending Route
       </Badge>
     );
   }
 
   return (
-    <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
+    <Badge className="rounded-full border-[color:var(--color-primary-soft-strong)] bg-[color:var(--color-primary-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--color-primary)]">
       {transition.to}
     </Badge>
   );
 }
 
-export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
+function DataUnavailableNotice() {
+  return (
+    <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] px-4 py-3 text-sm text-[color:var(--color-warning-text)]">
+      Project data is unavailable because the app could not connect to MySQL. Check the database values in .env and reload.
+    </div>
+  );
+}
+
+export function RoleRoutesIndex({
+  projects,
+  dataUnavailable = false,
+}: {
+  projects: ProjectRecord[];
+  dataUnavailable?: boolean;
+}) {
   const ongoingProjects = [...projects.filter(isOngoingProject)].sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
   );
@@ -149,6 +164,7 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
         subtitle="Admin view: all role queues and workflow responsibilities."
       />
       <div className="space-y-5 px-6 pb-8 pt-6">
+        {dataUnavailable ? <DataUnavailableNotice /> : null}
         <section className="grid gap-3 md:grid-cols-4">
           <Card>
             <CardContent className="p-4">
@@ -212,7 +228,7 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
                   {ongoingProjects.map((item) => (
-                    <tr key={item.id} className="hover:bg-[color:var(--color-surface-soft)]">
+                    <tr key={item.id} className="hover:bg-[color:var(--color-primary-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-bold">{item.customer}</p>
                         <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">
@@ -224,9 +240,7 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
                       </td>
                       <td className="px-4 py-4">
                         {item.roleQueue ? (
-                          <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
-                            {item.roleQueue}
-                          </Badge>
+                          <RoleChip role={item.roleQueue} />
                         ) : null}
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
@@ -264,14 +278,15 @@ export function RoleRoutesIndex({ projects }: { projects: ProjectRecord[] }) {
 export function RoleRoutePage({
   role,
   projects,
+  dataUnavailable = false,
 }: {
   role: Role;
   projects: ProjectRecord[];
+  dataUnavailable?: boolean;
 }) {
   const canCreateProject = role !== "Fiber Planning Team";
   const route = roleRoutes.find((item) => item.role === role);
   const queuedCases = projects.filter((item) => item.roleQueue === role);
-  const activeRoute = route?.transitions[0];
   const readyCount = queuedCases.filter((item) => item.revisions <= 1).length;
   const averageIrr =
     queuedCases.length === 0
@@ -310,31 +325,11 @@ export function RoleRoutePage({
         }
       />
       <div className="space-y-5 px-6 pb-8 pt-6">
+        {dataUnavailable ? <DataUnavailableNotice /> : null}
         <section
-          className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(150px,1fr))]"
+          className="grid gap-3 md:grid-cols-3"
           aria-label="Role queue summary"
         >
-          <Card className="overflow-hidden border-[color:var(--color-primary)] bg-[color:var(--color-primary)] text-white">
-            <CardContent className="flex h-full flex-col justify-between gap-5 p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">
-                    Active Route
-                  </p>
-                  <p className="mt-2 text-xl font-semibold leading-tight">
-                    {activeRoute?.to ?? "No route configured"}
-                  </p>
-                </div>
-                <span className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/80">
-                  {roleCodes[role]}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-white/70">
-                <span className="h-px flex-1 bg-white/20" aria-hidden="true" />
-                <span>{activeRoute ? "Next handoff stage" : "Configuration needed"}</span>
-              </div>
-            </CardContent>
-          </Card>
           <Card className="bg-white/95">
             <CardContent className="p-5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
@@ -405,7 +400,7 @@ export function RoleRoutePage({
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
                   {queuedCases.map((item) => (
-                    <tr key={item.id} className="hover:bg-[color:var(--color-surface-soft)]">
+                    <tr key={item.id} className="hover:bg-[color:var(--color-primary-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-bold">{item.customer}</p>
                         <p className="mt-1 font-mono text-xs text-[color:var(--color-muted)]">
@@ -456,7 +451,12 @@ export function RoleRoutePage({
                   {queuedCases.length === 0 ? (
                     <tr>
                       <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={6}>
-                        No projects are currently queued for this role.
+                        No projects are currently queued for this role. Check the project register for work routed to other roles.
+                        {projects.length > 0 ? (
+                          <Button asChild size="sm" variant="secondary" className="ml-3">
+                            <Link href="/projects">View all projects</Link>
+                          </Button>
+                        ) : null}
                       </td>
                     </tr>
                   ) : null}

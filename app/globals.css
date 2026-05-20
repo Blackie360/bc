@@ -2,16 +2,29 @@
 
 :root {
   --background: #f8fafc;
-  --foreground: #111827;
-  --color-primary: #111827;
-  --color-primary-strong: #020617;
-  --color-border: #e5e7eb;
-  --color-surface-soft: #f3f4f6;
-  --color-muted: #6b7280;
-  --color-muted-strong: #374151;
-  --color-warning-surface: #fff7ed;
-  --color-warning-border: #fed7aa;
-  --color-warning-text: #9a3412;
+  --foreground: #0f172a;
+  --color-primary: #011d59;
+  --color-primary-hover: #021f6f;
+  --color-primary-strong: #011747;
+  --color-primary-soft: rgb(1 29 89 / 0.08);
+  --color-primary-soft-strong: rgb(1 29 89 / 0.14);
+  --color-border: #e2e8f0;
+  --color-surface-soft: #f8fafc;
+  --color-muted: #64748b;
+  --color-muted-soft: #94a3b8;
+  --color-muted-strong: #334155;
+  --color-support-surface: #d6d5e8;
+  --color-support-border: #c7c5d8;
+  --color-support-text: #2f2f35;
+  --color-warning-surface: #fffbeb;
+  --color-warning-border: #f59e0b;
+  --color-warning-text: #92400e;
+  --color-success-surface: #ecfdf5;
+  --color-success-border: #a7f3d0;
+  --color-success-text: #047857;
+  --color-danger-surface: #fff1f2;
+  --color-danger-border: #fecdd3;
+  --color-danger-text: #be123c;
 }
 
 @theme inline {
@@ -22,7 +35,8 @@
 }
 
 body {
-  background: var(--background);
+  background:
+    linear-gradient(180deg, #f8fafc 0%, #ffffff 45%, #f8fafc 100%);
   color: var(--foreground);
   font-family: "Geist", "Geist Fallback", Arial, Helvetica, sans-serif;
 }

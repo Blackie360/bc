@@ -4,7 +4,8 @@ import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listProjects } from "@/lib/projects";
+import { RoleChip } from "@/components/workflow/role-chip";
+import { canEditProject, listProjectsForPage } from "@/lib/projects";
 import { getRoleRoute, roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export default async function ProjectsPage({
 }) {
   const query = await searchParams;
   const roleRoute = query.role ? getRoleRoute(query.role) : undefined;
-  const projects = await listProjects();
+  const { projects, dataUnavailable } = await listProjectsForPage();
   const visibleProjects = [...(roleRoute
     ? projects.filter((project) => project.roleQueue === roleRoute.role)
     : projects)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -67,18 +68,23 @@ export default async function ProjectsPage({
         }
       />
       <div className="space-y-4 px-6 pb-8 pt-6">
+        {dataUnavailable ? (
+          <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] px-4 py-3 text-sm text-[color:var(--color-warning-text)]">
+            Project data is unavailable because the app could not connect to MySQL. Check the database values in .env and reload.
+          </div>
+        ) : null}
         {query.submitted === "bc" ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
             BC submitted and routed according to the approval rules. The saved project is listed below.
           </div>
         ) : null}
         {query.submitted === "pboq" ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
             PBOQ request submitted to Fiber Planning. The saved project is listed below.
           </div>
         ) : null}
         {query.submitted === "fiber" ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
             Fiber Planning completed the PBOQ pack. The project is back with Account Manager for BC preparation.
           </div>
         ) : null}
@@ -88,7 +94,7 @@ export default async function ProjectsPage({
           </div>
         ) : null}
         {query.saved === "project" ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
             Project saved. The latest version is listed below.
           </div>
         ) : null}
@@ -115,7 +121,7 @@ export default async function ProjectsPage({
                 <tbody className="divide-y divide-[color:var(--color-border)]">
                   {visibleProjects.map((project) => (
                     // Fiber Planning projects are updated via the Fiber Planning form, not generic edit.
-                    <tr key={project.id} className="hover:bg-[color:var(--color-surface-soft)]">
+                    <tr key={project.id} className="hover:bg-[color:var(--color-primary-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-medium">{project.customer}</p>
                         <p className="mt-1 text-xs text-[color:var(--color-muted-strong)]">
@@ -127,9 +133,7 @@ export default async function ProjectsPage({
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">{project.state}</td>
                       <td className="px-4 py-4">
                         {project.roleQueue ? (
-                          <Badge className="rounded-full border-transparent bg-[#e8edf6] px-2.5 py-1 text-xs font-semibold text-[#001f60]">
-                            {project.roleQueue}
-                          </Badge>
+                          <RoleChip role={project.roleQueue} />
                         ) : null}
                       </td>
                       <td className="px-4 py-4">
@@ -150,7 +154,7 @@ export default async function ProjectsPage({
                               View
                             </Link>
                           </Button>
-                          {project.roleQueue !== "Fiber Planning Team" ? (
+                          {canEditProject(project) ? (
                             <Button asChild size="sm" variant="secondary">
                               <Link href={`/projects/${project.id}/edit`}>
                                 <Pencil className="h-4 w-4" aria-hidden="true" />

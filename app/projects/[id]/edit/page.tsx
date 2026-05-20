@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { updateProjectAction } from "@/app/projects/actions";
 import { ProjectForm } from "@/components/workflow/project-form";
-import { getProject } from "@/lib/projects";
+import { canEditProject, getProject } from "@/lib/projects";
 import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export default async function EditProjectPage({
   if (!project) {
     notFound();
   }
-  if (project.roleQueue === "Fiber Planning Team") {
+  if (!canEditProject(project)) {
     notFound();
   }
 

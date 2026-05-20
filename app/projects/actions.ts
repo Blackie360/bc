@@ -15,6 +15,8 @@ import {
   deleteProject,
   getProject,
   prepareBusinessCaseFromPboq,
+  savePreparedBcDraft,
+  preparedBcDraftSchema,
   type BcDraftInput,
   type BcSubmissionInput,
   type FiberPlanningInput,
@@ -22,6 +24,7 @@ import {
   type PboqRequestInput,
   type PreparedBcInput,
   projectInputSchema,
+  canEditProject,
   updateProject,
 } from "@/lib/projects";
 import { roleSlug, type Role } from "@/lib/workflow";
@@ -50,13 +53,13 @@ export async function createProjectAction(formData: FormData) {
 
 export async function createPboqRequestAction(formData: FormData) {
   const accountManagerName = await getCurrentUserDisplayName();
-  await createPboqRequest({
+  const project = await createPboqRequest({
     ...parsePboqRequestForm(formData),
     accountManagerName,
   });
 
   revalidateProjectViews();
-  redirect(`${accountManagerProjectsHref}&submitted=pboq`);
+  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=pboq`);
 }
 
 export async function completeFiberPlanningAction(id: string, formData: FormData) {
@@ -100,6 +103,12 @@ export async function prepareBusinessCaseFromPboqAction(id: string, formData: Fo
   redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=bc`);
 }
 
+/** BC preparation drafts are persisted in browser localStorage via project lifecycle storage. */
+export async function savePreparedBcDraftAction(id: string, draftJson: string) {
+  const draft = preparedBcDraftSchema.parse(JSON.parse(draftJson));
+  await savePreparedBcDraft(id, draft);
+}
+
 export async function createBcSubmissionAction(formData: FormData) {
   const accountManagerName = await getCurrentUserDisplayName();
   const intent = submissionIntent(formData);
@@ -127,9 +136,11 @@ export async function updateProjectAction(id: string, formData: FormData) {
   if (!existing) {
     throw new Error("Project not found.");
   }
-  if (existing.roleQueue === "Fiber Planning Team") {
+  if (!canEditProject(existing)) {
     throw new Error(
-      "Fiber Planning projects cannot be edited from Project Edit. Use the Fiber Planning submission form.",
+      existing.roleQueue === "Fiber Planning Team"
+        ? "Fiber Planning projects cannot be edited from Project Edit. Use the Fiber Planning submission form."
+        : "This project cannot be edited while the Account Manager is preparing the business case. Use the BC preparation form.",
     );
   }
 
@@ -191,13 +202,20 @@ function financeDecisionField(formData: FormData): FinanceDecision {
 
 const linkFieldNames = [
   "linkName",
-  "material",
-  "labor",
-  "wayleave",
+  "service",
+  "technology",
+  "onnetOffnet",
+  "costSource",
+  "newBuildCost",
+  "provisioningCost",
+  "materialCost",
+  "wayleaveCost",
   "mrr",
   "mrc",
   "nrc",
   "nrr",
+  "onnetCapacity",
+  "offnetCapacity",
 ] as const;
 
 type LinkFieldName = (typeof linkFieldNames)[number];
@@ -244,57 +262,47 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
 }
 
 function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
-  const summaryProofFile = optionalFileAttachment(formData, "summaryProofFile", "PBOQ_SUMMARY_PROOF");
-  const buildProofFile = optionalFileAttachment(formData, "buildProofFile", "PBOQ_BUILD_PROOF");
-  const materialProofFile = optionalFileAttachment(
-    formData,
-    "materialProofFile",
-    "PBOQ_MATERIAL_PROOF",
-  );
-  const wayleaveProofFile = optionalFileAttachment(
-    formData,
-    "wayleaveProofFile",
-    "PBOQ_WAYLEAVE_PROOF",
-  );
-  const categoryProofCount = [buildProofFile, materialProofFile, wayleaveProofFile].filter(
-    Boolean,
-  ).length;
-
-  // Optional extras, but if any category Excel is uploaded, require all three (or rely on Summary only).
-  if (categoryProofCount > 0 && categoryProofCount < 3) {
-    throw new Error(
-      "Upload all three category proof Excels (Build, Material, Wayleave), or only the Summary proof Excel.",
-    );
-  }
-
-  validateExcelAttachment(summaryProofFile);
-  validateExcelAttachment(buildProofFile);
-  validateExcelAttachment(materialProofFile);
-  validateExcelAttachment(wayleaveProofFile);
-
   return {
     fiberPlanningNotes: textField(formData, "fiberPlanningNotes"),
     lines: parsePboqCostLines(formData),
     pboqFile: fileAttachment(formData, "pboqFile", "PBOQ"),
-    summaryProofFile,
-    buildProofFile,
-    materialProofFile,
-    wayleaveProofFile,
   };
 }
 
 function parsePreparedBcForm(formData: FormData): PreparedBcInput {
+  const linkEvidenceAttachments: PreparedBcInput["linkEvidenceAttachments"] = [];
+  const links = parseLinks(formData, linkEvidenceAttachments, false, "PBOQ", true);
+  const pboqOrSurveyType = textField(formData, "pboqOrSurveyType");
+
   return {
+    customerName: textField(formData, "customerName"),
+    accountNumber: textField(formData, "accountNumber"),
+    opportunityNumber: textField(formData, "opportunityNumber"),
+    accountManagerName: textField(formData, "accountManagerName"),
     solutionArchitectureName: textField(formData, "solutionArchitectureName"),
     solutionEngineerName: textField(formData, "solutionEngineerName"),
+    contractTermMonths: Number(textField(formData, "contractTermMonths")),
+    projectExecutiveSummary: textField(formData, "projectExecutiveSummary"),
     type: textField(formData, "type") as PreparedBcInput["type"],
     irr: Number(textField(formData, "irr")),
     payback: Number(textField(formData, "payback")),
     capex: Number(textField(formData, "capex")),
     subsidy: Number(textField(formData, "subsidy")),
     approvedBudget: Number(textField(formData, "approvedBudget")),
+    links,
+    lsoAttachment: fileAttachment(formData, "lsoAttachment", "LSO"),
     bcTemplate: fileAttachment(formData, "bcTemplate", "BC_TEMPLATE"),
-    orderForm: fileAttachment(formData, "orderForm", "ORDER_FORM"),
+    pboqOrSurveyAttachment: optionalFileAttachment(
+      formData,
+      "pboqOrSurveyAttachment",
+      pboqOrSurveyType === "ACTUAL_SURVEY" ? "ACTUAL_SURVEY_QUOTE" : "PBOQ",
+    ),
+    thirdPartyQuotesAttachment: optionalFileAttachment(
+      formData,
+      "thirdPartyQuotesAttachment",
+      "CONTRACTOR_QUOTE",
+    ),
+    linkEvidenceAttachments,
   };
 }
 
@@ -332,19 +340,32 @@ function parsePboqCostLines(formData: FormData): FiberPlanningInput["lines"] {
 }
 
 function parseBcSubmissionForm(formData: FormData): BcSubmissionFormFields {
-  const pboqAttachment = fileAttachment(formData, "pboqFile", "PBOQ");
+  const pboqOrSurveyType = textField(formData, "pboqOrSurveyType");
   const attachments: BcSubmissionInput["attachments"] = [
+    fileAttachment(formData, "lsoAttachment", "LSO"),
     fileAttachment(formData, "bcTemplate", "BC_TEMPLATE"),
-    pboqAttachment,
-    fileAttachment(formData, "orderForm", "ORDER_FORM"),
+    fileAttachment(
+      formData,
+      "pboqOrSurveyAttachment",
+      pboqOrSurveyType === "ACTUAL_SURVEY" ? "ACTUAL_SURVEY_QUOTE" : "PBOQ",
+    ),
   ];
+  const thirdPartyQuotes = optionalFileAttachment(
+    formData,
+    "thirdPartyQuotesAttachment",
+    "CONTRACTOR_QUOTE",
+  );
+  if (thirdPartyQuotes) attachments.push(thirdPartyQuotes);
   const links = parseLinks(formData, attachments);
 
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
     customerName: textField(formData, "customerName"),
+    accountNumber: textField(formData, "accountNumber"),
     solutionArchitectureName: textField(formData, "solutionArchitectureName"),
     solutionEngineerName: textField(formData, "solutionEngineerName"),
+    contractTermMonths: Number(textField(formData, "contractTermMonths")),
+    projectExecutiveSummary: textField(formData, "projectExecutiveSummary"),
     region: textField(formData, "region") || "Unassigned",
     type: textField(formData, "type") as BcSubmissionInput["type"],
     irr: Number(textField(formData, "irr")),
@@ -360,9 +381,11 @@ function parseBcSubmissionForm(formData: FormData): BcSubmissionFormFields {
 function parseBcDraftForm(formData: FormData): BcDraftFormFields {
   const attachments: BcDraftInput["attachments"] = [];
   const mainAttachments = [
+    optionalFileAttachment(formData, "lsoAttachment", "LSO"),
     optionalFileAttachment(formData, "bcTemplate", "BC_TEMPLATE"),
-    optionalFileAttachment(formData, "pboqFile", "PBOQ"),
-    optionalFileAttachment(formData, "orderForm", "ORDER_FORM"),
+    optionalFileAttachment(formData, "pboqOrSurveyAttachment", "PBOQ"),
+    optionalFileAttachment(formData, "pboqOrSurveyAttachment", "ACTUAL_SURVEY_QUOTE"),
+    optionalFileAttachment(formData, "thirdPartyQuotesAttachment", "CONTRACTOR_QUOTE"),
   ];
   for (const attachment of mainAttachments) {
     if (attachment) attachments.push(attachment);
@@ -372,8 +395,11 @@ function parseBcDraftForm(formData: FormData): BcDraftFormFields {
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
     customerName: textField(formData, "customerName"),
+    accountNumber: textField(formData, "accountNumber"),
     solutionArchitectureName: textField(formData, "solutionArchitectureName"),
     solutionEngineerName: textField(formData, "solutionEngineerName"),
+    contractTermMonths: numberField(formData, "contractTermMonths") || 12,
+    projectExecutiveSummary: textField(formData, "projectExecutiveSummary"),
     region: textField(formData, "region"),
     type: textField(formData, "type") as BcDraftInput["type"],
     irr: numberField(formData, "irr"),
@@ -390,6 +416,8 @@ function parseLinks(
   formData: FormData,
   attachments: Array<BcSubmissionInput["attachments"][number]>,
   allowPartialRows = false,
+  defaultEvidenceType: "PBOQ" | "ACTUAL_SURVEY_QUOTE" | "CONTRACTOR_QUOTE" = "ACTUAL_SURVEY_QUOTE",
+  optionalLinkEvidence = false,
 ) {
   const rawRows = new Map<number, RawLinkRow>();
   const linkFieldPattern = /^links\[(\d+)]\[(\w+)]$/;
@@ -415,54 +443,94 @@ function parseLinks(
     .sort(([left], [right]) => left - right)
     .filter(([, row]) => Object.values(row).some((value) => value && value.length > 0))
     .map(([index, row]) => {
+      const nrcBreakdown = {
+        newBuildCost: numberOrZero(row.newBuildCost),
+        provisioningCost: numberOrZero(row.provisioningCost),
+        materialCost: numberOrZero(row.materialCost),
+        wayleaveCost: numberOrZero(row.wayleaveCost),
+      };
+      const computedNrc =
+        nrcBreakdown.newBuildCost +
+        nrcBreakdown.provisioningCost +
+        nrcBreakdown.materialCost +
+        nrcBreakdown.wayleaveCost;
+      const parsedNrc = numberOrZero(row.nrc);
+      const linkPayload = {
+        linkName: row.linkName ?? (allowPartialRows ? `Draft link ${index + 1}` : ""),
+        service: row.service ?? (allowPartialRows ? "Unspecified" : ""),
+        technology: row.technology ?? (allowPartialRows ? "Unspecified" : ""),
+        onnetOffnet: (row.onnetOffnet ?? "Onnet") as BcSubmissionInput["links"][number]["onnetOffnet"],
+        costSource: (row.costSource ?? "PBOQ") as BcSubmissionInput["links"][number]["costSource"],
+        ...nrcBreakdown,
+        mrr: numberOrZero(row.mrr),
+        mrc: numberOrZero(row.mrc),
+        nrc: parsedNrc > 0 ? parsedNrc : computedNrc,
+        nrr: numberOrZero(row.nrr),
+        onnetCapacity: row.onnetCapacity ?? "",
+        offnetCapacity: row.offnetCapacity ?? "",
+      };
+
       if (allowPartialRows) {
+        const evidenceType =
+          linkPayload.costSource === "3rd Party Quote"
+            ? "CONTRACTOR_QUOTE"
+            : linkPayload.costSource === "Actual Survey"
+              ? "ACTUAL_SURVEY_QUOTE"
+              : defaultEvidenceType;
         const optionalEvidence = optionalFileAttachment(
           formData,
           `linkEvidence-${index}`,
-          "ACTUAL_SURVEY_QUOTE",
+          evidenceType,
         );
-        const evidenceAttachmentIndex = optionalEvidence ? attachments.length : -1;
-
         if (optionalEvidence) {
           attachments.push(optionalEvidence);
         }
 
         return {
-          linkName: row.linkName ?? `Draft link ${index + 1}`,
-          material: numberOrZero(row.material),
-          labor: numberOrZero(row.labor),
-          wayleave: numberOrZero(row.wayleave),
-          mrr: numberOrZero(row.mrr),
-          mrc: numberOrZero(row.mrc),
-          nrc: numberOrZero(row.nrc),
-          nrr: numberOrZero(row.nrr),
-          evidenceAttachmentIndex,
+          ...linkPayload,
+          ...(optionalEvidence ? { evidenceAttachmentIndex: attachments.length - 1 } : {}),
         };
       }
 
-      const hasCorePricing = hasLinkPricing(row);
-      const evidenceAttachmentIndex = attachments.length;
-
-      if (hasCorePricing) {
-        attachments.push(
-          fileAttachment(
-            formData,
-            `linkEvidence-${index}`,
-            "ACTUAL_SURVEY_QUOTE",
-            "Actual survey quote is required when link pricing is submitted.",
-          ),
-        );
+      if (!hasLinkPricing(row)) {
+        throw new Error("Each link requires name, service, technology, and NRC breakdown fields.");
       }
 
+      const evidenceType =
+        linkPayload.costSource === "3rd Party Quote"
+          ? "CONTRACTOR_QUOTE"
+          : linkPayload.costSource === "Actual Survey"
+            ? "ACTUAL_SURVEY_QUOTE"
+            : defaultEvidenceType;
+
+      if (optionalLinkEvidence) {
+        const optionalEvidence = optionalFileAttachment(
+          formData,
+          `linkEvidence-${index}`,
+          evidenceType,
+        );
+        if (optionalEvidence) {
+          attachments.push(optionalEvidence);
+        }
+
+        return {
+          ...linkPayload,
+          ...(optionalEvidence ? { evidenceAttachmentIndex: attachments.length - 1 } : {}),
+        };
+      }
+
+      const evidenceAttachmentIndex = attachments.length;
+      attachments.push(
+        fileAttachment(
+          formData,
+          `linkEvidence-${index}`,
+          evidenceType,
+          "Per-link PBOQ, survey, or 3rd party quote evidence is required.",
+        ),
+      );
+
       return {
-        linkName: row.linkName ?? "",
-        material: Number(row.material),
-        labor: Number(row.labor),
-        wayleave: Number(row.wayleave),
-        mrr: Number(row.mrr),
-        mrc: Number(row.mrc),
-        nrc: Number(row.nrc),
-        nrr: Number(row.nrr),
+        ...linkPayload,
         evidenceAttachmentIndex,
       };
     });
@@ -471,10 +539,12 @@ function parseLinks(
 function hasLinkPricing(row: RawLinkRow) {
   const requiredFields = [
     "linkName",
-    "material",
-    "labor",
-    "wayleave",
-    "mrr",
+    "service",
+    "technology",
+    "newBuildCost",
+    "provisioningCost",
+    "materialCost",
+    "wayleaveCost",
   ] satisfies LinkFieldName[];
   const providedFields = requiredFields.filter((field) => {
     const value = row[field];
@@ -488,7 +558,7 @@ function hasLinkPricing(row: RawLinkRow) {
 
   if (providedFields.length !== requiredFields.length) {
     throw new Error(
-      "Link Name, Material, Labor, Wayleave, and MRR must be completed together.",
+      "Link Name, Service, Technology, and all NRC breakdown fields must be completed together.",
     );
   }
 
@@ -513,6 +583,7 @@ function numberOrZero(value: string | undefined) {
 
 type AttachmentType =
   | BcSubmissionInput["attachments"][number]["type"]
+  | PreparedBcInput["lsoAttachment"]["type"]
   | "SOLUTION_DESIGN"
   | "BC_APPROVAL_CERTIFICATE"
   | "PBOQ_SUMMARY_PROOF"
@@ -559,16 +630,6 @@ function optionalFileAttachment<TType extends AttachmentType>(
     sizeBytes: value.size,
     storageKey: `metadata/${randomUUID()}-${value.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
   };
-}
-
-function validateExcelAttachment(attachment: ReturnType<typeof optionalFileAttachment>) {
-  if (!attachment) return;
-
-  const loweredName = attachment.name.toLowerCase();
-  const isExcelName = loweredName.endsWith(".xlsx") || loweredName.endsWith(".xls");
-  if (!isExcelName) {
-    throw new Error("Proof attachments must be Excel files (.xls or .xlsx).");
-  }
 }
 
 function submissionIntent(formData: FormData) {

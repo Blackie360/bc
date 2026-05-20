@@ -86,10 +86,15 @@ const documentTypeValues = [
   "SURVEY_REPORT",
   "CONTRACTOR_QUOTE",
   "ORDER_FORM",
+  "LSO",
   "ACTUAL_SURVEY_QUOTE",
   "BC_APPROVAL_CERTIFICATE",
   "ACTUAL_COST_EVIDENCE",
 ] as const;
+
+const linkOnnetOffnetValues = ["ONNET", "OFFNET"] as const;
+
+const linkCostSourceValues = ["PBOQ", "ACTUAL_SURVEY", "THIRD_PARTY_QUOTE"] as const;
 
 export const users = mysqlTable("User", {
   id: textId("id"),
@@ -144,6 +149,7 @@ export const pboqRequests = mysqlTable("PboqRequest", {
   actualSurveyCost: decimal("actualSurveyCost", { precision: 14, scale: 2 }).default("0").notNull(),
   notes: text("notes"),
   fiberPlanningNotes: text("fiberPlanningNotes"),
+  bcPreparationDraft: json("bcPreparationDraft"),
   requestedAt: timestamp("requestedAt", { mode: "date" }).defaultNow().notNull(),
   completedAt: timestamp("completedAt", { mode: "date" }),
 });
@@ -172,6 +178,8 @@ export const businessCases = mysqlTable(
     type: mysqlEnum("type", businessCaseTypeValues).notNull(),
     solutionArchitectureName: text("solutionArchitectureName").default("Unassigned").notNull(),
     solutionEngineerName: text("solutionEngineerName").default("Unassigned").notNull(),
+    accountNumber: text("accountNumber"),
+    projectExecutiveSummary: text("projectExecutiveSummary"),
     irr: decimal("irr", { precision: 8, scale: 2 }).notNull(),
     paybackMonths: int("paybackMonths").notNull(),
     capex: decimal("capex", { precision: 14, scale: 2 }).notNull(),
@@ -200,13 +208,20 @@ export const businessCaseLinks = mysqlTable("BusinessCaseLink", {
     .notNull()
     .references(() => businessCases.id),
   linkName: text("linkName").notNull(),
+  service: text("service"),
+  technology: text("technology"),
+  onnetOffnet: mysqlEnum("onnetOffnet", linkOnnetOffnetValues),
+  costSource: mysqlEnum("costSource", linkCostSourceValues),
   material: decimal("material", { precision: 14, scale: 2 }).notNull(),
   labor: decimal("labor", { precision: 14, scale: 2 }).notNull(),
+  provisioningCost: decimal("provisioningCost", { precision: 14, scale: 2 }).default("0").notNull(),
   wayleave: decimal("wayleave", { precision: 14, scale: 2 }).notNull(),
   mrr: decimal("mrr", { precision: 14, scale: 2 }).notNull(),
   mrc: decimal("mrc", { precision: 14, scale: 2 }).notNull(),
   nrc: decimal("nrc", { precision: 14, scale: 2 }).notNull(),
   nrr: decimal("nrr", { precision: 14, scale: 2 }).notNull(),
+  onnetCapacity: text("onnetCapacity"),
+  offnetCapacity: text("offnetCapacity"),
   evidenceDocumentId: varchar("evidenceDocumentId", { length: 36 }).references(() => documents.id),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow().notNull(),
 });

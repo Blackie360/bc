@@ -9,13 +9,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[color:var(--color-primary)] text-white hover:bg-[color:var(--color-primary-strong)] focus-visible:outline-[color:var(--color-primary)]",
+          "bg-[color:var(--color-primary)] text-white hover:bg-[color:var(--color-primary-hover)] focus-visible:outline-[color:var(--color-primary)]",
         secondary:
-          "border border-[color:var(--color-border)] bg-white text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)] focus-visible:outline-[color:var(--color-muted)]",
+          "border border-[color:var(--color-border)] bg-white text-[color:var(--color-muted-strong)] hover:border-[color:var(--color-primary)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:outline-[color:var(--color-primary)]",
         ghost:
-          "text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-surface-soft)] hover:text-[color:var(--color-primary)] focus-visible:outline-[color:var(--color-muted)]",
+          "text-[color:var(--color-muted-strong)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:outline-[color:var(--color-primary)]",
         warning:
-          "border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] text-[color:var(--color-warning-text)] hover:bg-[#ffeec1] focus-visible:outline-[color:var(--color-warning-border)]",
+          "border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-surface)] text-[color:var(--color-danger-text)] hover:bg-rose-100 focus-visible:outline-[color:var(--color-danger-text)]",
       },
       size: {
         default: "h-9 px-4",

@@ -1,9 +1,9 @@
 import { RoleRoutesIndex } from "@/components/workflow/role-routes";
-import { listProjects } from "@/lib/projects";
+import { listProjectsForPage } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const projects = await listProjects();
-  return <RoleRoutesIndex projects={projects} />;
+  const { projects, dataUnavailable } = await listProjectsForPage();
+  return <RoleRoutesIndex projects={projects} dataUnavailable={dataUnavailable} />;
 }

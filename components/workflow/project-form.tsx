@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowLeft, Save } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
@@ -7,6 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
+import { readFormFieldValue } from "@/lib/project-lifecycle-storage";
 import type { ProjectRecord } from "@/lib/projects";
 import { roleRoutes, roles, workflowStates } from "@/lib/workflow";
 
@@ -42,6 +48,46 @@ export function ProjectForm({
   showWorkflowLinks?: boolean;
   title: string;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const scopeKey = project?.id ?? "draft:project-edit";
+  const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
+    useFormLifecycleDraft({
+      scopeKey,
+      stage: "projectEdit",
+      enabled: Boolean(project?.id),
+      buildDraft: () => {
+        const form = formRef.current;
+        if (!form) {
+          return { savedAt: new Date().toISOString() };
+        }
+
+        return {
+          savedAt: new Date().toISOString(),
+          customer: readFormFieldValue(form, "customer"),
+          region: readFormFieldValue(form, "region"),
+          title: readFormFieldValue(form, "title"),
+          owner: readFormFieldValue(form, "owner"),
+          state: readFormFieldValue(form, "state"),
+          roleQueue: readFormFieldValue(form, "roleQueue"),
+          type: readFormFieldValue(form, "type") as "Ordinary BC" | "Margin Analysis BC",
+          due: readFormFieldValue(form, "due"),
+          irr: readFormFieldValue(form, "irr"),
+          payback: readFormFieldValue(form, "payback"),
+          capex: readFormFieldValue(form, "capex"),
+          subsidy: readFormFieldValue(form, "subsidy"),
+          approvedBudget: readFormFieldValue(form, "approvedBudget"),
+          actualSpend: readFormFieldValue(form, "actualSpend"),
+          surveyDeviation: readFormFieldValue(form, "surveyDeviation"),
+        };
+      },
+    });
+
+  useEffect(() => {
+    return bindFormAutoSave(formRef.current);
+  }, [bindFormAutoSave, isReady]);
+
+  const draft = restoredDraft;
+
   return (
     <AdminShell
       code="PRJ"
@@ -72,7 +118,18 @@ export function ProjectForm({
             <CardTitle className="text-sm">Project Form</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <form action={action} className="space-y-5">
+            {!isReady && project?.id ? (
+              <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>
+            ) : (
+            <form
+              ref={formRef}
+              action={action}
+              className="space-y-5"
+              onSubmit={() => clearDraft()}
+            >
+              {project?.id ? (
+                <DraftSavedNotice savedAtLabel={savedAtLabel} saveError={saveError} />
+              ) : null}
               <section className="grid gap-4 md:grid-cols-2">
                 <h2 className="text-sm font-semibold text-[color:var(--color-primary)] md:col-span-2">
                   Basic Information
@@ -81,7 +138,7 @@ export function ProjectForm({
                   <Input
                     name="customer"
                     autoComplete="off"
-                    defaultValue={project?.customer}
+                    defaultValue={draft?.customer ?? project?.customer}
                     placeholder="Kijani Retail Group…"
                     required
                   />
@@ -90,7 +147,7 @@ export function ProjectForm({
                   <Input
                     name="region"
                     autoComplete="off"
-                    defaultValue={project?.region}
+                    defaultValue={draft?.region ?? project?.region}
                     placeholder="Nairobi…"
                     required
                   />
@@ -99,7 +156,7 @@ export function ProjectForm({
                   <Textarea
                     name="title"
                     autoComplete="off"
-                    defaultValue={project?.title}
+                    defaultValue={draft?.title ?? project?.title}
                     placeholder="Metro fiber build…"
                     required
                   />
@@ -108,7 +165,7 @@ export function ProjectForm({
                   <Input
                     name="owner"
                     autoComplete="off"
-                    defaultValue={project?.owner}
+                    defaultValue={draft?.owner ?? project?.owner}
                     placeholder="A. Mwangi…"
                     required
                   />
@@ -119,21 +176,21 @@ export function ProjectForm({
                   Workflow Routing
                 </h2>
                 <Field label="Lifecycle Stage">
-                  <Select name="state" defaultValue={project?.state ?? workflowStates[0]}>
+                  <Select name="state" defaultValue={draft?.state ?? project?.state ?? workflowStates[0]}>
                     {workflowStates.map((state) => (
                       <option key={state}>{state}</option>
                     ))}
                   </Select>
                 </Field>
                 <Field label="Role Queue">
-                  <Select name="roleQueue" defaultValue={project?.roleQueue ?? roles[0]}>
+                  <Select name="roleQueue" defaultValue={draft?.roleQueue ?? project?.roleQueue ?? roles[0]}>
                     {roles.map((role) => (
                       <option key={role}>{role}</option>
                     ))}
                   </Select>
                 </Field>
                 <Field label="BC Type">
-                  <Select name="type" defaultValue={project?.type ?? "Ordinary BC"}>
+                  <Select name="type" defaultValue={draft?.type ?? project?.type ?? "Ordinary BC"}>
                     <option>Ordinary BC</option>
                     <option>Margin Analysis BC</option>
                   </Select>
@@ -142,7 +199,7 @@ export function ProjectForm({
                   <Input
                     name="due"
                     autoComplete="off"
-                    defaultValue={project?.due ?? "Today"}
+                    defaultValue={draft?.due ?? project?.due ?? "Today"}
                     placeholder="Today…"
                     required
                   />
@@ -158,7 +215,7 @@ export function ProjectForm({
                     type="number"
                     inputMode="decimal"
                     step="0.1"
-                    defaultValue={project?.irr ?? 18}
+                    defaultValue={draft?.irr ?? project?.irr ?? 18}
                     required
                   />
                 </Field>
@@ -167,7 +224,7 @@ export function ProjectForm({
                     name="payback"
                     type="number"
                     inputMode="numeric"
-                    defaultValue={project?.payback ?? 36}
+                    defaultValue={draft?.payback ?? project?.payback ?? 36}
                     required
                   />
                 </Field>
@@ -176,7 +233,7 @@ export function ProjectForm({
                     name="capex"
                     type="number"
                     inputMode="decimal"
-                    defaultValue={project?.capex ?? 0}
+                    defaultValue={draft?.capex ?? project?.capex ?? 0}
                     required
                   />
                 </Field>
@@ -185,7 +242,7 @@ export function ProjectForm({
                     name="subsidy"
                     type="number"
                     inputMode="decimal"
-                    defaultValue={project?.subsidy ?? 0}
+                    defaultValue={draft?.subsidy ?? project?.subsidy ?? 0}
                     required
                   />
                 </Field>
@@ -194,7 +251,7 @@ export function ProjectForm({
                     name="approvedBudget"
                     type="number"
                     inputMode="decimal"
-                    defaultValue={project?.approvedBudget ?? 0}
+                    defaultValue={draft?.approvedBudget ?? project?.approvedBudget ?? 0}
                     required
                   />
                 </Field>
@@ -203,7 +260,7 @@ export function ProjectForm({
                     name="actualSpend"
                     type="number"
                     inputMode="decimal"
-                    defaultValue={project?.actualSpend ?? 0}
+                    defaultValue={draft?.actualSpend ?? project?.actualSpend ?? 0}
                     required
                   />
                 </Field>
@@ -213,7 +270,7 @@ export function ProjectForm({
                     type="number"
                     inputMode="decimal"
                     step="0.1"
-                    defaultValue={project?.surveyDeviation ?? 0}
+                    defaultValue={draft?.surveyDeviation ?? project?.surveyDeviation ?? 0}
                     required
                   />
                 </Field>
@@ -225,6 +282,7 @@ export function ProjectForm({
                 </FormSubmitButton>
               </div>
             </form>
+            )}
           </CardContent>
         </Card>
       </div>

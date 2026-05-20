@@ -2,22 +2,28 @@
 
 import { Plus, Save, Trash2 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
+import {
+  lifecycleDraftScopes,
+  readFormFieldValue,
+  readIndexedFormRows,
+  readFileMetadata,
+  readLifecycleStage,
+  type BcSubmissionDraft,
+  type BcSubmissionLinkDraft,
+} from "@/lib/project-lifecycle-storage";
 
 type LinkRow = {
   id: number;
-};
-
-type LinkEvidenceTriggerFields = {
-  material?: string;
-  labor?: string;
-  wayleave?: string;
-};
+} & BcSubmissionLinkDraft;
 
 function Field({
   label,
@@ -42,12 +48,16 @@ function FileUploadField({
   id,
   name,
   required,
+  accept,
+  defaultFileName,
 }: {
   id: string;
   name: string;
   required?: boolean;
+  accept?: string;
+  defaultFileName?: string;
 }) {
-  const [fileName, setFileName] = useState("No file selected");
+  const [fileName, setFileName] = useState(defaultFileName ?? "No file selected");
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const nextName = event.currentTarget.files?.[0]?.name;
@@ -68,6 +78,7 @@ function FileUploadField({
         name={name}
         type="file"
         required={required}
+        accept={accept}
         onChange={handleChange}
         className="sr-only"
       />
@@ -75,28 +86,135 @@ function FileUploadField({
   );
 }
 
-const moneyFields = [
-  ["material", "Material"],
-  ["labor", "Labor"],
-  ["wayleave", "Wayleave"],
-  ["mrr", "MRR"],
-  ["mrc", "MRC"],
-  ["nrc", "NRC"],
-  ["nrr", "NRR"],
-] as const;
+function nrcTotal(parts: Record<string, string>) {
+  return ["newBuildCost", "provisioningCost", "materialCost", "wayleaveCost"].reduce(
+    (total, key) => total + (Number(parts[key]) || 0),
+    0,
+  );
+}
+
+function buildRowsFromDraft(links?: BcSubmissionLinkDraft[]): LinkRow[] {
+  if (!links || links.length === 0) {
+    return [{ id: 1 }];
+  }
+
+  return links.map((link, index) => ({
+    id: index + 1,
+    ...link,
+  }));
+}
+
+function buildNrcPartsFromDraft(links?: BcSubmissionLinkDraft[]) {
+  const parts: Record<number, Record<string, string>> = {};
+
+  links?.forEach((link, index) => {
+    parts[index + 1] = {
+      newBuildCost: link.newBuildCost ?? "0",
+      provisioningCost: link.provisioningCost ?? "0",
+      materialCost: link.materialCost ?? "0",
+      wayleaveCost: link.wayleaveCost ?? "0",
+    };
+  });
+
+  return parts;
+}
+
+function buildBcSubmissionDraft(
+  form: HTMLFormElement,
+  rows: LinkRow[],
+): BcSubmissionDraft {
+  const readAttachment = (name: string) => {
+    const input = form.elements.namedItem(name);
+    return input instanceof HTMLInputElement ? readFileMetadata(input) : undefined;
+  };
+
+  return {
+    savedAt: new Date().toISOString(),
+    opportunityNumber: readFormFieldValue(form, "opportunityNumber"),
+    customerName: readFormFieldValue(form, "customerName"),
+    accountNumber: readFormFieldValue(form, "accountNumber"),
+    solutionArchitectureName: readFormFieldValue(form, "solutionArchitectureName"),
+    solutionEngineerName: readFormFieldValue(form, "solutionEngineerName"),
+    contractTermMonths: readFormFieldValue(form, "contractTermMonths"),
+    region: readFormFieldValue(form, "region"),
+    projectExecutiveSummary: readFormFieldValue(form, "projectExecutiveSummary"),
+    type: readFormFieldValue(form, "type") as BcSubmissionDraft["type"],
+    pboqOrSurveyType: readFormFieldValue(form, "pboqOrSurveyType") as BcSubmissionDraft["pboqOrSurveyType"],
+    irr: readFormFieldValue(form, "irr"),
+    payback: readFormFieldValue(form, "payback"),
+    capex: readFormFieldValue(form, "capex"),
+    subsidy: readFormFieldValue(form, "subsidy"),
+    approvedBudget: readFormFieldValue(form, "approvedBudget"),
+    lsoAttachment: readAttachment("lsoAttachment"),
+    bcTemplate: readAttachment("bcTemplate"),
+    pboqOrSurveyAttachment: readAttachment("pboqOrSurveyAttachment"),
+    thirdPartyQuotesAttachment: readAttachment("thirdPartyQuotesAttachment"),
+    links: readIndexedFormRows<BcSubmissionLinkDraft>(form, "links", [
+      "linkName",
+      "service",
+      "technology",
+      "onnetOffnet",
+      "costSource",
+      "newBuildCost",
+      "provisioningCost",
+      "materialCost",
+      "wayleaveCost",
+      "mrr",
+      "mrc",
+      "nrc",
+      "nrr",
+      "onnetCapacity",
+      "offnetCapacity",
+    ]),
+    linkEvidenceAttachments: rows
+      .map((_row, index) => readAttachment(`linkEvidence-${index}`))
+      .filter((attachment): attachment is NonNullable<typeof attachment> => Boolean(attachment)),
+  };
+}
 
 export function BcSubmissionForm({
   action,
   accountManagerDisplayName,
 }: {
   action: (formData: FormData) => void | Promise<void>;
-  /** From the server (env / future auth). Not editable on this form. */
   accountManagerDisplayName: string;
 }) {
-  const [rows, setRows] = useState<LinkRow[]>([{ id: 1 }]);
-  const [linkEvidenceTriggers, setLinkEvidenceTriggers] = useState<
-    Record<number, LinkEvidenceTriggerFields>
-  >({});
+  const formRef = useRef<HTMLFormElement>(null);
+  const [rows, setRows] = useState<LinkRow[]>(() => {
+    if (typeof window === "undefined") {
+      return [{ id: 1 }];
+    }
+
+    const draft = readLifecycleStage(lifecycleDraftScopes.bcSubmission, "bcSubmission");
+    return buildRowsFromDraft(draft?.links);
+  });
+  const [nrcParts, setNrcParts] = useState<Record<number, Record<string, string>>>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    const draft = readLifecycleStage(lifecycleDraftScopes.bcSubmission, "bcSubmission");
+    return buildNrcPartsFromDraft(draft?.links);
+  });
+  const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
+    useFormLifecycleDraft({
+      scopeKey: lifecycleDraftScopes.bcSubmission,
+      stage: "bcSubmission",
+      buildDraft: () => {
+        const form = formRef.current;
+        if (!form) {
+          return { savedAt: new Date().toISOString() };
+        }
+
+        return buildBcSubmissionDraft(form, rows);
+      },
+      deps: [rows, nrcParts],
+    });
+  const draft = restoredDraft;
+
+  useEffect(() => {
+    return bindFormAutoSave(formRef.current);
+  }, [bindFormAutoSave, isReady, rows, nrcParts]);
 
   function addRow() {
     setRows((current) => [...current, { id: Date.now() }]);
@@ -106,19 +224,15 @@ export function BcSubmissionForm({
     setRows((current) =>
       current.length === 1 ? current : current.filter((row) => row.id !== id),
     );
-    setLinkEvidenceTriggers((current) => {
+    setNrcParts((current) => {
       const next = { ...current };
       delete next[id];
       return next;
     });
   }
 
-  function updateEvidenceTriggerField(
-    rowId: number,
-    field: keyof LinkEvidenceTriggerFields,
-    value: string,
-  ) {
-    setLinkEvidenceTriggers((current) => ({
+  function updateNrcPart(rowId: number, field: string, value: string) {
+    setNrcParts((current) => ({
       ...current,
       [rowId]: {
         ...current[rowId],
@@ -127,48 +241,116 @@ export function BcSubmissionForm({
     }));
   }
 
-  function isFilled(value?: string) {
-    return Boolean(value && value.trim().length > 0);
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const intent =
+      submitter instanceof HTMLButtonElement && submitter.name === "intent"
+        ? submitter.value
+        : "submit";
+
+    if (intent === "submit") {
+      clearDraft();
+    }
   }
 
-  function shouldAskForPboqQuote(rowId: number) {
-    const row = linkEvidenceTriggers[rowId];
-    return (
-      isFilled(row?.material) &&
-      isFilled(row?.labor) &&
-      isFilled(row?.wayleave)
-    );
+  if (!isReady) {
+    return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
   }
 
   return (
-    <form action={action} className="space-y-4">
+    <form ref={formRef} action={action} className="space-y-4" onSubmit={handleSubmit}>
+      <DraftSavedNotice savedAtLabel={savedAtLabel} saveError={saveError} />
       <Card>
         <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">Opportunity Details</CardTitle>
+          <CardTitle className="text-sm">BC Details</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-2">
+          <Field label="Customer Name">
+            <Input
+              name="customerName"
+              autoComplete="organization"
+              defaultValue={draft?.customerName}
+              required
+            />
+            <FileUploadField
+              id="lsoAttachment"
+              name="lsoAttachment"
+              required
+              defaultFileName={draft?.lsoAttachment?.name}
+            />
+          </Field>
+          <Field label="Account Number">
+            <Input name="accountNumber" defaultValue={draft?.accountNumber} required />
+            <FileUploadField
+              id="bcTemplate"
+              name="bcTemplate"
+              accept=".xlsx,.xls,.csv"
+              required
+              defaultFileName={draft?.bcTemplate?.name}
+            />
+          </Field>
           <Field label="Opportunity Number">
-            <Input name="opportunityNumber" autoComplete="off" required />
-          </Field>
-          <Field label="Name of Customer">
-            <Input name="customerName" autoComplete="organization" required />
-          </Field>
-          <Field label="Name of Solution Architecture">
-            <Input name="solutionArchitectureName" autoComplete="off" required />
-          </Field>
-          <Field label="Solution Engineer">
-            <Input name="solutionEngineerName" autoComplete="off" required />
+            <Input
+              name="opportunityNumber"
+              autoComplete="off"
+              defaultValue={draft?.opportunityNumber}
+              required
+            />
+            <Select name="pboqOrSurveyType" defaultValue={draft?.pboqOrSurveyType ?? "PBOQ"}>
+              <option value="PBOQ">PBOQ</option>
+              <option value="ACTUAL_SURVEY">Actual survey per site</option>
+            </Select>
+            <FileUploadField
+              id="pboqOrSurveyAttachment"
+              name="pboqOrSurveyAttachment"
+              required
+              defaultFileName={draft?.pboqOrSurveyAttachment?.name}
+            />
           </Field>
           <Field label="Account Manager">
-            <div
-              className="flex h-10 w-full items-center rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-3 text-sm text-[color:var(--color-muted-strong)]"
-              title="Taken from current authenticated/session context"
-            >
+            <div className="flex h-10 w-full items-center rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-3 text-sm text-[color:var(--color-muted-strong)]">
               {accountManagerDisplayName}
             </div>
+            <FileUploadField
+              id="thirdPartyQuotesAttachment"
+              name="thirdPartyQuotesAttachment"
+              defaultFileName={draft?.thirdPartyQuotesAttachment?.name}
+            />
+          </Field>
+          <Field label="Solution Architecture">
+            <Input
+              name="solutionArchitectureName"
+              autoComplete="off"
+              defaultValue={draft?.solutionArchitectureName}
+              required
+            />
+          </Field>
+          <Field label="Engineering">
+            <Input
+              name="solutionEngineerName"
+              autoComplete="off"
+              defaultValue={draft?.solutionEngineerName}
+              required
+            />
+          </Field>
+          <Field label="Contract Term">
+            <Select name="contractTermMonths" defaultValue={draft?.contractTermMonths ?? "12"}>
+              <option value="12">12 months</option>
+              <option value="24">24 months</option>
+              <option value="36">36 months</option>
+            </Select>
           </Field>
           <Field label="Region">
-            <Input name="region" autoComplete="off" required />
+            <Input name="region" autoComplete="off" defaultValue={draft?.region} required />
+          </Field>
+          <Field label="Project Executive Summary">
+            <Textarea
+              name="projectExecutiveSummary"
+              rows={4}
+              defaultValue={draft?.projectExecutiveSummary}
+              required
+              className="md:col-span-2"
+            />
           </Field>
         </CardContent>
       </Card>
@@ -179,26 +361,50 @@ export function BcSubmissionForm({
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-3">
           <Field label="BC Type">
-            <Select name="type" defaultValue="Ordinary BC">
+            <Select name="type" defaultValue={draft?.type ?? "Ordinary BC"}>
               <option>Ordinary BC</option>
               <option>Margin Analysis BC</option>
             </Select>
           </Field>
           <Field label="IRR">
-            <Input name="irr" type="number" inputMode="decimal" step="0.1" required />
+            <Input
+              name="irr"
+              type="number"
+              inputMode="decimal"
+              step="0.1"
+              defaultValue={draft?.irr}
+              required
+            />
             <FieldHint>Internal Rate of Return (projected annual ROI percentage).</FieldHint>
           </Field>
           <Field label="Payback Months">
-            <Input name="payback" type="number" inputMode="numeric" required />
-            <FieldHint>Time needed to recover total investment (in months).</FieldHint>
+            <Input
+              name="payback"
+              type="number"
+              inputMode="numeric"
+              defaultValue={draft?.payback}
+              required
+            />
           </Field>
           <Field label="Capex">
-            <Input name="capex" type="number" inputMode="decimal" step="0.01" required />
-            <FieldHint>Total projected capital expenditure for delivery.</FieldHint>
+            <Input
+              name="capex"
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              defaultValue={draft?.capex}
+              required
+            />
           </Field>
           <Field label="Subsidy Requirement">
-            <Input name="subsidy" type="number" inputMode="decimal" step="0.01" required />
-            <FieldHint>Funding gap that requires subsidy support.</FieldHint>
+            <Input
+              name="subsidy"
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              defaultValue={draft?.subsidy}
+              required
+            />
           </Field>
           <Field label="Approved Budget">
             <Input
@@ -206,113 +412,156 @@ export function BcSubmissionForm({
               type="number"
               inputMode="decimal"
               step="0.01"
+              defaultValue={draft?.approvedBudget}
               required
             />
-            <FieldHint>Budget amount approved for implementation.</FieldHint>
           </Field>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b border-[color:var(--color-border)] px-4 py-3">
-          <div>
-            <CardTitle className="text-sm">Link Items</CardTitle>
-            <p className="mt-1 text-xs text-[color:var(--color-muted)]">
-              Link name, material, labor, wayleave, and MRR require an Actual Survey Quote and PBOQ file.
-            </p>
-          </div>
+          <CardTitle className="text-sm">BC Links</CardTitle>
           <Button type="button" size="sm" variant="secondary" onClick={addRow}>
             <Plus className="h-4 w-4" aria-hidden="true" />
             Link
           </Button>
         </CardHeader>
-        <CardContent className="p-4">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] text-left text-sm">
-              <thead className="text-[11px] uppercase text-[color:var(--color-muted)]">
-                <tr>
-                  <th className="px-2 py-2 font-medium">Link Name</th>
-                  {moneyFields.map(([, label]) => (
-                    <th key={label} className="px-2 py-2 font-medium">
-                      {label}
-                    </th>
-                  ))}
-                  <th className="px-2 py-2 font-medium">Actual Survey Quote</th>
-                  <th className="px-2 py-2 font-medium">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[color:var(--color-border)]">
-                {rows.map((row, index) => (
-                  <tr key={row.id}>
-                    <td className="px-2 py-2">
-                      <Input name={`links[${index}][linkName]`} required />
-                    </td>
-                    {moneyFields.map(([name]) => (
-                      <td key={name} className="px-2 py-2">
-                        <Input
-                          name={`links[${index}][${name}]`}
-                          type="number"
-                          inputMode="decimal"
-                          step="0.01"
-                          min="0"
-                          required
-                          onChange={
-                            name === "material" || name === "labor" || name === "wayleave"
-                              ? (event) =>
-                                  updateEvidenceTriggerField(row.id, name, event.currentTarget.value)
-                              : undefined
-                          }
-                        />
-                      </td>
-                    ))}
-                    <td className="px-2 py-2">
-                      {shouldAskForPboqQuote(row.id) ? (
-                        <FileUploadField
-                          id={`linkEvidence-${row.id}`}
-                          name={`linkEvidence-${index}`}
-                          required
-                        />
-                      ) : (
-                        <p className="text-xs text-[color:var(--color-muted)]">
-                          Fill Material, Labor, and Wayleave to add PBOQ / Quote.
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-2 py-2">
-                      {rows.length > 1 ? (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="warning"
-                          onClick={() => removeRow(row.id)}
-                          aria-label="Remove link row"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </Button>
-                      ) : null}
-                    </td>
-                  </tr>
+        <CardContent className="space-y-4 p-4">
+          {rows.map((row, index) => (
+            <div
+              key={row.id}
+              className="space-y-3 rounded-md border border-[color:var(--color-border)] p-3"
+            >
+              <div className="grid gap-3 md:grid-cols-4">
+                <Field label="Link Name">
+                  <Input name={`links[${index}][linkName]`} defaultValue={row.linkName} required />
+                </Field>
+                <Field label="Service">
+                  <Select name={`links[${index}][service]`} defaultValue={row.service ?? "DIA"} required>
+                    <option>DIA</option>
+                    <option>MPLS</option>
+                    <option>EPL</option>
+                    <option>DFA</option>
+                  </Select>
+                </Field>
+                <Field label="Technology">
+                  <Input
+                    name={`links[${index}][technology]`}
+                    defaultValue={row.technology ?? "Fiber"}
+                    required
+                  />
+                </Field>
+                <Field label="Onnet / Offnet">
+                  <Select
+                    name={`links[${index}][onnetOffnet]`}
+                    defaultValue={row.onnetOffnet ?? "Onnet"}
+                    required
+                  >
+                    <option>Onnet</option>
+                    <option>Offnet</option>
+                  </Select>
+                </Field>
+                <Field label="Source">
+                  <Select
+                    name={`links[${index}][costSource]`}
+                    defaultValue={row.costSource ?? "PBOQ"}
+                    required
+                  >
+                    <option>PBOQ</option>
+                    <option>Actual Survey</option>
+                    <option>3rd Party Quote</option>
+                  </Select>
+                </Field>
+                <Field label="Onnet Capacity">
+                  <Input name={`links[${index}][onnetCapacity]`} defaultValue={row.onnetCapacity} />
+                </Field>
+                <Field label="Offnet Capacity">
+                  <Input name={`links[${index}][offnetCapacity]`} defaultValue={row.offnetCapacity} />
+                </Field>
+                <Field label="Evidence">
+                  <FileUploadField
+                    id={`linkEvidence-${row.id}`}
+                    name={`linkEvidence-${index}`}
+                    required
+                    defaultFileName={draft?.linkEvidenceAttachments?.[index]?.name}
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                {[
+                  ["newBuildCost", "New Build Cost"],
+                  ["provisioningCost", "Provisioning Cost"],
+                  ["materialCost", "Material Cost"],
+                  ["wayleaveCost", "Wayleave Cost-Estimates"],
+                ].map(([name, label]) => (
+                  <Field key={name} label={label}>
+                    <Input
+                      name={`links[${index}][${name}]`}
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      defaultValue={row[name as keyof BcSubmissionLinkDraft] ?? nrcParts[row.id]?.[name]}
+                      required
+                      onChange={(event) =>
+                        updateNrcPart(row.id, name, event.currentTarget.value)
+                      }
+                    />
+                  </Field>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-          <CardTitle className="text-sm">Required Attachments</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 p-4 md:grid-cols-3">
-          <Field label="BC Template">
-            <FileUploadField id="bcTemplate" name="bcTemplate" required />
-          </Field>
-          <Field label="PBOQ File">
-            <FileUploadField id="pboqFile" name="pboqFile" required />
-          </Field>
-          <Field label="Order Form">
-            <FileUploadField id="orderForm" name="orderForm" required />
-          </Field>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                <Field label="NRC Total">
+                  <Input type="number" readOnly value={nrcTotal(nrcParts[row.id] ?? {})} />
+                  <input
+                    type="hidden"
+                    name={`links[${index}][nrc]`}
+                    value={nrcTotal(nrcParts[row.id] ?? {})}
+                  />
+                </Field>
+                <Field label="MRC">
+                  <Input
+                    name={`links[${index}][mrc]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.mrc}
+                  />
+                </Field>
+                <Field label="MRR">
+                  <Input
+                    name={`links[${index}][mrr]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.mrr}
+                    required
+                  />
+                </Field>
+                <Field label="NRR">
+                  <Input
+                    name={`links[${index}][nrr]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.nrr}
+                  />
+                </Field>
+              </div>
+              {rows.length > 1 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="warning"
+                  onClick={() => removeRow(row.id)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Remove link
+                </Button>
+              ) : null}
+            </div>
+          ))}
         </CardContent>
       </Card>
 
