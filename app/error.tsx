@@ -27,8 +27,8 @@ export default function Error({
               Workflow data is unavailable
             </h1>
             <p className="mt-2 text-sm leading-6 text-[color:var(--color-muted-strong)]">
-              The application could not reach the MySQL database. Check the DB_URL,
-              DB_PORT, DB_USER, DB_PASSWORD, and DB_NAME values in .env, then try again.
+              Something went wrong while loading workflow data. Check the server logs,
+              then try again.
             </p>
             {error.digest ? (
               <p className="mt-3 font-mono text-xs text-[color:var(--color-muted)]">

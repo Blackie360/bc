@@ -130,7 +130,7 @@ function RouteStatus({ transition }: { transition?: Transition }) {
 function DataUnavailableNotice() {
   return (
     <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] px-4 py-3 text-sm text-[color:var(--color-warning-text)]">
-      Project data is unavailable because the app could not connect to MySQL. Check the database values in .env and reload.
+      Project data is unavailable because the app could not read local project storage. Check that `.data/projects.json` is accessible and reload.
     </div>
   );
 }

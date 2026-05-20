@@ -5,8 +5,8 @@ export const KICKOFF_LINK_NOTES_MARKER = "kickoff:";
 export const pboqKickoffLinkInputSchema = z.object({
   linkName: z.string().min(1),
   region: z.string().min(2),
-  service: z.enum(["EPL", "DIA", "DFA"]).optional(),
-  capacity: z.string().optional(),
+  service: z.enum(["EPL", "DIA", "DFA"]),
+  capacity: z.string().min(1),
 });
 
 export type PboqKickoffLinkInput = z.infer<typeof pboqKickoffLinkInputSchema>;

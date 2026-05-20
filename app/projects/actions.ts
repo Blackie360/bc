@@ -152,11 +152,7 @@ export async function updateProjectAction(id: string, formData: FormData) {
 }
 
 export async function decideFinanceWorkflowAction(id: string, formData: FormData) {
-  const project = await decideFinanceWorkflow(
-    id,
-    financeDecisionField(formData),
-    textField(formData, "notes"),
-  );
+  const project = await decideFinanceWorkflow(id, financeDecisionField(formData));
 
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
@@ -235,7 +231,16 @@ type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName" | "sale
 function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   const pboqMode = textField(formData, "pboqMode");
   const links = parsePboqKickoffLinks(formData);
-  const defaultService = textField(formData, "requiredService") as PboqRequestInput["requiredService"];
+  const mrr = Number(textField(formData, "mrr"));
+  const nrr = Number(textField(formData, "nrr"));
+
+  if (!Number.isFinite(mrr) || mrr <= 0) {
+    throw new Error("MRR must be a positive number.");
+  }
+
+  if (!Number.isFinite(nrr) || nrr <= 0) {
+    throw new Error("NRR must be a positive number.");
+  }
 
   if (links.length === 0) {
     throw new Error("Add at least one link before submitting the PBOQ request.");
@@ -248,11 +253,21 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
       throw new Error(`Link ${index + 1} requires a region.`);
     }
 
+    const capacity = link.capacity?.trim() ?? "";
+    if (!capacity) {
+      throw new Error(`Link ${index + 1} requires a capacity.`);
+    }
+
+    const service = link.service as PboqRequestInput["links"][number]["service"] | undefined;
+    if (service !== "EPL" && service !== "DIA" && service !== "DFA") {
+      throw new Error(`Link ${index + 1} requires a service.`);
+    }
+
     return {
       linkName: link.linkName ?? "",
       region,
-      service: (link.service as PboqRequestInput["requiredService"] | undefined) ?? defaultService,
-      capacity: link.capacity || textField(formData, "capacity"),
+      service,
+      capacity,
     };
   });
 
@@ -261,15 +276,13 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
     customerName: textField(formData, "customerName"),
     siteName: textField(formData, "siteName"),
     siteCoordinates: textField(formData, "siteCoordinates"),
-    requiredService: defaultService,
-    capacity: textField(formData, "capacity"),
     dateRequested: textField(formData, "dateRequested"),
     leadNetworkPlanner: textField(formData, "leadNetworkPlanner"),
     designPlanDate: textField(formData, "designPlanDate") || textField(formData, "dateRequested"),
     region: normalizedLinks[0].region,
     segment: "Enterprise",
-    mrr: Number(textField(formData, "mrr")),
-    nrr: Number(textField(formData, "nrr")),
+    mrr,
+    nrr,
     contractTermMonths: Number(textField(formData, "contractTermMonths")),
     pboqMode: pboqMode === "existing" ? "existing" : "request",
     routeDistanceKm: 0,

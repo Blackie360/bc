@@ -175,9 +175,8 @@ export function PboqRequestForm({
 }) {
   const todayDate = new Date().toISOString().slice(0, 10);
   const [linkRows, setLinkRows] = useState<KickoffLinkRow[]>([
-    { id: 1, region: defaultKickoffRegion },
+    { id: 1, region: defaultKickoffRegion, service: "EPL" },
   ]);
-  const [defaultKickoffService, setDefaultKickoffService] = useState<"EPL" | "DIA" | "DFA">("EPL");
 
   function addLinkRow() {
     setLinkRows((current) => [
@@ -185,7 +184,7 @@ export function PboqRequestForm({
       {
         id: Date.now(),
         region: current[0]?.region ?? defaultKickoffRegion,
-        service: defaultKickoffService,
+        service: current[0]?.service ?? "EPL",
       },
     ]);
   }
@@ -209,7 +208,13 @@ export function PboqRequestForm({
             <Input name="opportunityNumber" required />
           </Field>
           <Field label="Date Requested" required>
-            <Input name="dateRequested" type="date" defaultValue={todayDate} required />
+            <Input
+              name="dateRequested"
+              type="date"
+              defaultValue={todayDate}
+              readOnly
+              required
+            />
           </Field>
           <Field label="Client" required>
             <Input name="customerName" required />
@@ -219,7 +224,7 @@ export function PboqRequestForm({
               name="mrr"
               type="number"
               inputMode="decimal"
-              min="0"
+              min="0.01"
               step="0.01"
               required
             />
@@ -229,7 +234,7 @@ export function PboqRequestForm({
               name="nrr"
               type="number"
               inputMode="decimal"
-              min="0"
+              min="0.01"
               step="0.01"
               required
             />
@@ -250,26 +255,6 @@ export function PboqRequestForm({
               placeholder="1.2975 S, 36.8914 E"
               required
             />
-          </Field>
-          <Field label="Required Service" required>
-            <Select
-              name="requiredService"
-              defaultValue="EPL"
-              required
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                if (value === "EPL" || value === "DIA" || value === "DFA") {
-                  setDefaultKickoffService(value);
-                }
-              }}
-            >
-              <option value="EPL">EPL</option>
-              <option value="DIA">DIA</option>
-              <option value="DFA">DFA</option>
-            </Select>
-          </Field>
-          <Field label="Capacity" required>
-            <Input name="capacity" placeholder="e.g. 1 Gbps" required />
           </Field>
           <Field label="Lead Network Planner" required>
             <Input name="leadNetworkPlanner" required />
@@ -314,7 +299,7 @@ export function PboqRequestForm({
                       *
                     </span>
                   </th>
-                  {["Service", "Capacity", "Action"].map((label) => (
+                  {["Service *", "Capacity *", "Action"].map((label) => (
                     <th key={label} className="px-2 py-2 font-medium">
                       {label}
                     </th>
@@ -344,7 +329,8 @@ export function PboqRequestForm({
                     <td className="px-2 py-2">
                       <Select
                         name={`kickoffLinks[${index}][service]`}
-                        defaultValue={row.service ?? defaultKickoffService}
+                        defaultValue={row.service ?? "EPL"}
+                        required
                       >
                         <option value="EPL">EPL</option>
                         <option value="DIA">DIA</option>
@@ -356,6 +342,7 @@ export function PboqRequestForm({
                         name={`kickoffLinks[${index}][capacity]`}
                         defaultValue={row.capacity}
                         placeholder="e.g. 1 Gbps"
+                        required
                       />
                     </td>
                     <td className="px-2 py-2">

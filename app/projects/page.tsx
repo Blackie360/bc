@@ -70,7 +70,7 @@ export default async function ProjectsPage({
       <div className="space-y-4 px-6 pb-8 pt-6">
         {dataUnavailable ? (
           <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] px-4 py-3 text-sm text-[color:var(--color-warning-text)]">
-            Project data is unavailable because the app could not connect to MySQL. Check the database values in .env and reload.
+            Project data is unavailable because the app could not read local project storage. Check that `.data/projects.json` is accessible and reload.
           </div>
         ) : null}
         {query.submitted === "bc" ? (
