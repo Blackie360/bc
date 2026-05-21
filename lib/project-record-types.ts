@@ -70,6 +70,13 @@ export type PboqRequestRecord = {
   bcPreparationDraft?: PreparedBcDraft | null;
 };
 
+export type FinanceDecisionRecord = {
+  id: string;
+  decision: "approve" | "reject" | "escalate-cfo" | "question-architect";
+  notes: string;
+  createdAt: string;
+};
+
 export type ProjectRecord = ProjectInput & {
   id: string;
   siteName: string;
@@ -95,6 +102,7 @@ export type ProjectRecord = ProjectInput & {
   totalNrc: number;
   totalNrr: number;
   decision: DecisionOutput | "PENDING";
+  financeDecisions?: FinanceDecisionRecord[];
   certificateIssued: boolean;
   variance: number;
   revisions: number;

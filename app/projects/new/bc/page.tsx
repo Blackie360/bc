@@ -1,21 +1,22 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
-import { createPboqRequestAction } from "@/app/projects/actions";
+import { createBcSubmissionAction } from "@/app/projects/actions";
 import { Button } from "@/components/ui/button";
+import { BcSubmissionForm } from "@/components/workflow/bc-submission-form";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
-import { PboqRequestForm } from "@/components/workflow/pboq-workflow-forms";
-import { getCurrentUserRole } from "@/lib/current-user";
+import { getCurrentUserDisplayName, getCurrentUserRole } from "@/lib/current-user";
 import { roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewProjectPage() {
+export default async function NewBcPage() {
   const currentRole = await getCurrentUserRole();
   if (currentRole !== "Account Manager") {
     notFound();
   }
 
+  const accountManagerDisplayName = await getCurrentUserDisplayName();
   const accountManagerRoute = roleRoutes.find((route) => route.role === "Account Manager");
   const accountManagerDashboardHref = accountManagerRoute?.href ?? "/roles/account-manager";
   const accountManagerProjectsHref = `/projects?role=${accountManagerRoute?.slug ?? "account-manager"}`;
@@ -33,8 +34,8 @@ export default async function NewProjectPage() {
       projectsHref={accountManagerProjectsHref}
     >
       <ShellHeading
-        title="Account Manager Project Start Form"
-        subtitle="Capture project kickoff details and route the request for PBOQ handling."
+        title="Business Case Submission Form"
+        subtitle="Capture the BC pack and submit it to BC Analyst / Finance."
         action={
           <Button asChild variant="secondary" size="sm">
             <Link href={accountManagerProjectsHref}>
@@ -45,7 +46,10 @@ export default async function NewProjectPage() {
         }
       />
       <div className="mx-auto max-w-7xl space-y-4 px-6 pb-8 pt-6">
-        <PboqRequestForm action={createPboqRequestAction} />
+        <BcSubmissionForm
+          action={createBcSubmissionAction}
+          accountManagerDisplayName={accountManagerDisplayName}
+        />
       </div>
     </AdminShell>
   );

@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getCurrentUserDisplayName } from "@/lib/current-user";
+import { getCurrentUserDisplayName, getCurrentUserRole } from "@/lib/current-user";
 import {
   createBcDraft,
   createBcSubmission,
@@ -19,8 +19,8 @@ import {
   preparedBcDraftSchema,
   type BcDraftInput,
   type BcSubmissionInput,
+  type FinanceDecisionInput,
   type FiberPlanningInput,
-  type FinanceDecision,
   type PboqRequestInput,
   type PreparedBcInput,
   projectInputSchema,
@@ -31,6 +31,13 @@ import { roleSlug, type Role } from "@/lib/workflow";
 
 function parseProjectForm(formData: FormData) {
   return projectInputSchema.parse(Object.fromEntries(formData));
+}
+
+async function assertAccountManagerCanCreateProject() {
+  const currentRole = await getCurrentUserRole();
+  if (currentRole !== "Account Manager") {
+    throw new Error("Only Account Managers can create projects.");
+  }
 }
 
 function revalidateProjectViews() {
@@ -46,12 +53,14 @@ const accountManagerProjectsHref = projectsHrefForRole("Account Manager");
 const fiberPlanningProjectsHref = projectsHrefForRole("Fiber Planning Team");
 
 export async function createProjectAction(formData: FormData) {
+  await assertAccountManagerCanCreateProject();
   const project = await createProject(parseProjectForm(formData));
   revalidateProjectViews();
   redirect(`${projectsHrefForRole(project.roleQueue)}&saved=project`);
 }
 
 export async function createPboqRequestAction(formData: FormData) {
+  await assertAccountManagerCanCreateProject();
   const accountManagerName = await getCurrentUserDisplayName();
   await createPboqRequest({
     ...parsePboqRequestForm(formData),
@@ -111,6 +120,7 @@ export async function savePreparedBcDraftAction(id: string, draftJson: string) {
 }
 
 export async function createBcSubmissionAction(formData: FormData) {
+  await assertAccountManagerCanCreateProject();
   const accountManagerName = await getCurrentUserDisplayName();
   const intent = submissionIntent(formData);
   if (intent === "draft") {
@@ -152,7 +162,7 @@ export async function updateProjectAction(id: string, formData: FormData) {
 }
 
 export async function decideFinanceWorkflowAction(id: string, formData: FormData) {
-  const project = await decideFinanceWorkflow(id, financeDecisionField(formData));
+  const project = await decideFinanceWorkflow(id, parseFinanceDecisionForm(formData));
 
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
@@ -182,16 +192,23 @@ function zString(value: FormDataEntryValue | null) {
   return value;
 }
 
-function financeDecisionField(formData: FormData): FinanceDecision {
+function parseFinanceDecisionForm(formData: FormData): FinanceDecisionInput {
   const value = textField(formData, "decision");
+  const notes = textField(formData, "notes").trim();
+  if (notes.length < 3) {
+    throw new Error("Finance comments are required.");
+  }
 
   if (
     value === "approve" ||
-    value === "reject-escalate-cfo" ||
-    value === "reject-question-architect" ||
-    value === "reject-question-engineer"
+    value === "reject" ||
+    value === "escalate-cfo" ||
+    value === "question-architect"
   ) {
-    return value;
+    return {
+      decision: value,
+      notes,
+    };
   }
 
   throw new Error("Finance decision is required.");

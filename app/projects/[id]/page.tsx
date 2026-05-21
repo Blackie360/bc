@@ -233,41 +233,83 @@ export default async function ProjectDetailPage({
             <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
               <CardTitle>Finance Decision</CardTitle>
               <p className="text-sm text-[color:var(--color-muted)]">
-                Approve to Sales Operations, or reject with the next route for follow-up.
+                Select a Finance outcome and include the reason before routing the project.
               </p>
             </CardHeader>
             <CardContent className="grid gap-3 p-4 md:grid-cols-2">
               <FinanceDecisionForm
                 action={financeAction}
+                description="Approved cases move to the Sales Operations validation queue."
                 decision="approve"
-                label="Approve to Sales Operations"
-                notesPlaceholder="Optional approval notes"
+                label="Approve"
+                notesLabel="Approval reason"
+                notesPlaceholder="Explain why Finance approved this project."
                 projectId={project.id}
+                variant="default"
               />
               <FinanceDecisionForm
                 action={financeAction}
-                decision="reject-escalate-cfo"
-                label="Reject and Escalate to CFO"
-                notesPlaceholder="Explain why CFO review is needed"
+                description="Rejected cases remain in the current Finance queue for follow-up."
+                decision="reject"
+                label="Reject"
+                notesLabel="Rejection reason"
+                notesPlaceholder="Explain why Finance rejected this project."
                 variant="warning"
                 projectId={project.id}
               />
               <FinanceDecisionForm
                 action={financeAction}
-                decision="reject-question-architect"
-                label="Reject and Ask Solutions Architect"
-                notesPlaceholder="Question for the Solutions Architect"
+                description="Escalations move to the CFO queue for executive review."
+                decision="escalate-cfo"
+                label="Escalate"
+                notesLabel="Escalation reason"
+                notesPlaceholder="Explain why CFO escalation is needed."
                 variant="warning"
                 projectId={project.id}
               />
               <FinanceDecisionForm
                 action={financeAction}
-                decision="reject-question-engineer"
-                label="Reject and Ask Solutions Engineer"
-                notesPlaceholder="Question for the Solutions Engineer"
+                description="Redirect with a question to Solutions Architecture."
+                decision="question-architect"
+                label="Redirect with Question"
+                notesLabel="Question for Solutions Architecture"
+                notesPlaceholder="Write the question for Solutions Architecture."
                 variant="warning"
                 projectId={project.id}
               />
+            </CardContent>
+          </Card>
+        ) : null}
+        {project.financeDecisions?.length ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>Finance Comments</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4">
+              {project.financeDecisions.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-md border border-[color:var(--color-border)] bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Badge className="capitalize" variant="info">
+                      {item.decision.replaceAll("-", " ")}
+                    </Badge>
+                    <span className="text-xs text-[color:var(--color-muted)]">
+                      {new Intl.DateTimeFormat("en-US", {
+                        month: "short",
+                        day: "2-digit",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }).format(new Date(item.createdAt))}
+                    </span>
+                  </div>
+                  <p className="mt-2 whitespace-pre-line text-sm text-[color:var(--color-muted-strong)]">
+                    {item.notes}
+                  </p>
+                </div>
+              ))}
             </CardContent>
           </Card>
         ) : null}
