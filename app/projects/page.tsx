@@ -40,7 +40,7 @@ export default async function ProjectsPage({
   const badgeLabel = roleRoute?.role ?? "Admin";
   const dashboardHref = roleRoute ? roleRoute.href : "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
-  const canCreateProject = roleRoute?.role !== "Fiber Planning Team";
+  const canCreateProject = roleRoute?.role === "Account Manager";
 
   return (
     <AdminShell

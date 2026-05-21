@@ -150,20 +150,20 @@ export const workflowTransitions = [
   {
     from: "Finance / CFO Approval",
     to: "Finance / CFO Approval",
-    owner: "CFO",
-    rule: "Rejected finance cases that exceed threshold or need executive judgement are escalated to the CFO.",
+    owner: "BC Analyst / Finance",
+    rule: "Rejected finance cases remain in the Finance queue for follow-up with documented rejection reasons.",
   },
   {
     from: "Finance / CFO Approval",
     to: "Business Case Prepared",
     owner: "Solutions Architect",
-    rule: "Rejected finance cases with design questions are returned to the Solutions Architect for clarification.",
+    rule: "Finance cases with design questions are redirected to the Solutions Architect for clarification.",
   },
   {
     from: "Finance / CFO Approval",
-    to: "Business Case Prepared",
-    owner: "Solutions Engineer",
-    rule: "Rejected finance cases with technical costing questions are returned to the Solutions Engineer for clarification.",
+    to: "Finance / CFO Approval",
+    owner: "CFO",
+    rule: "Finance cases needing executive judgement are escalated to the CFO with documented escalation reasons.",
   },
   {
     from: "Sales Operations Validation",

@@ -391,16 +391,26 @@ export function mapKickoffLinksToCostLineRecords(
 }
 
 export type {
+  FinanceDecisionRecord,
   PboqRequestRecord,
   ProjectRecord,
 } from "@/lib/project-record-types";
-import type { PboqRequestRecord, ProjectRecord } from "@/lib/project-record-types";
+import type {
+  FinanceDecisionRecord,
+  PboqRequestRecord,
+  ProjectRecord,
+} from "@/lib/project-record-types";
 
 export type FinanceDecision =
   | "approve"
-  | "reject-escalate-cfo"
-  | "reject-question-architect"
-  | "reject-question-engineer";
+  | "reject"
+  | "escalate-cfo"
+  | "question-architect";
+
+export type FinanceDecisionInput = {
+  decision: FinanceDecision;
+  notes: string;
+};
 
 export function isAccountManagerBcPreparationStage(project: ProjectRecord) {
   return (
@@ -609,22 +619,11 @@ function updateLocalProjectRecord(project: ProjectRecord, input: ProjectInput): 
   };
 }
 
-function localRouteForPreparedBusinessCase(input: {
-  type: BusinessCaseType;
-  decision: DecisionOutput;
-}): { state: WorkflowState; role: Role; autoApproved: boolean } {
-  if (
-    input.type === "Ordinary BC" &&
-    (input.decision === "PROCEED" ||
-      input.decision === "PROCEED WITH SUBSIDY DISCLOSURE")
-  ) {
-    return {
-      state: "Sales Operations Validation",
-      role: "Sales Operations",
-      autoApproved: true,
-    };
-  }
-
+function localRouteForPreparedBusinessCase(): {
+  state: WorkflowState;
+  role: Role;
+  autoApproved: boolean;
+} {
   return {
     state: "Finance / CFO Approval",
     role: "BC Analyst / Finance",
@@ -632,20 +631,38 @@ function localRouteForPreparedBusinessCase(input: {
   };
 }
 
-function localFinanceRoute(decision: FinanceDecision): { state: WorkflowState; role: Role } {
-  if (decision === "approve") {
-    return { state: "Sales Operations Validation", role: "Sales Operations" };
+function localFinanceRoute(
+  project: ProjectRecord,
+  decision: FinanceDecision,
+): { state: WorkflowState; role: Role } {
+  switch (decision) {
+    case "approve":
+      return { state: "Sales Operations Validation", role: "Sales Operations" };
+    case "reject":
+      return { state: project.state, role: project.roleQueue };
+    case "escalate-cfo":
+      return { state: "Finance / CFO Approval", role: "CFO" };
+    case "question-architect":
+      return { state: "Business Case Prepared", role: "Solutions Architect" };
+    default: {
+      const exhaustive: never = decision;
+      return exhaustive;
+    }
+  }
+}
+
+function localFinanceDecisionRecord(input: FinanceDecisionInput): FinanceDecisionRecord {
+  const notes = input.notes.trim();
+  if (notes.length < 3) {
+    throw new Error("Finance comments are required.");
   }
 
-  if (decision === "reject-escalate-cfo") {
-    return { state: "Finance / CFO Approval", role: "CFO" };
-  }
-
-  if (decision === "reject-question-architect") {
-    return { state: "Business Case Prepared", role: "Solutions Architect" };
-  }
-
-  return { state: "Business Case Prepared", role: "Solutions Engineer" };
+  return {
+    id: createId(),
+    decision: input.decision,
+    notes,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 async function localListProjects() {
@@ -869,10 +886,7 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
         subsidyRequirement: validated.subsidy,
         capex: validated.capex,
       }).decision;
-      const route = localRouteForPreparedBusinessCase({
-        type: validated.type,
-        decision,
-      });
+      const route = localRouteForPreparedBusinessCase();
       const newDocuments = [
         localDocument(validated.lsoAttachment, now),
         localDocument(validated.bcTemplate, now),
@@ -955,10 +969,7 @@ async function localCreateBcSubmission(input: BcSubmissionInput) {
     subsidyRequirement: validated.subsidy,
     capex: validated.capex,
   }).decision;
-  const route = localRouteForPreparedBusinessCase({
-    type: validated.type,
-    decision,
-  });
+  const route = localRouteForPreparedBusinessCase();
   const documents = validated.attachments.map((attachment) => localDocument(attachment, now));
   const links = validated.links.map((link) =>
     mapLinkInputToRecord(
@@ -1063,19 +1074,21 @@ async function localCreateBcDraft(input: BcDraftInput) {
   return project;
 }
 
-async function localDecideFinanceWorkflow(id: string, decision: FinanceDecision) {
+async function localDecideFinanceWorkflow(id: string, input: FinanceDecisionInput) {
   let updatedProject: ProjectRecord | undefined;
+  const financeDecision = localFinanceDecisionRecord(input);
 
   await updateLocalProjects((projects) =>
     projects.map((project) => {
       if (project.id !== id) return project;
 
-      const route = localFinanceRoute(decision);
+      const route = localFinanceRoute(project, input.decision);
       updatedProject = {
         ...project,
         state: route.state,
         roleQueue: route.role,
-        certificateIssued: project.certificateIssued || decision === "approve",
+        certificateIssued: project.certificateIssued || input.decision === "approve",
+        financeDecisions: [...(project.financeDecisions ?? []), financeDecision],
         updatedAt: new Date().toISOString(),
       };
 
@@ -1192,8 +1205,8 @@ export async function updateProject(id: string, input: ProjectInput) {
   return localUpdateProject(id, input);
 }
 
-export async function decideFinanceWorkflow(id: string, decision: FinanceDecision) {
-  return localDecideFinanceWorkflow(id, decision);
+export async function decideFinanceWorkflow(id: string, input: FinanceDecisionInput) {
+  return localDecideFinanceWorkflow(id, input);
 }
 
 export async function advanceProjectToNextStage(id: string) {

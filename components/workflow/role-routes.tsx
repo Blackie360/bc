@@ -284,7 +284,7 @@ export function RoleRoutePage({
   projects: ProjectRecord[];
   dataUnavailable?: boolean;
 }) {
-  const canCreateProject = role !== "Fiber Planning Team";
+  const canCreateProject = role === "Account Manager";
   const route = roleRoutes.find((item) => item.role === role);
   const queuedCases = projects.filter((item) => item.roleQueue === role);
   const readyCount = queuedCases.filter((item) => item.revisions <= 1).length;
