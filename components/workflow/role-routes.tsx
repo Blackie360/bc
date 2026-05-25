@@ -96,7 +96,8 @@ function nextRoutingAction(project: ProjectRecord) {
 
 function requiresDetailForm(project: ProjectRecord) {
   return (
-    project.roleQueue === "Fiber Planning Team" ||
+    (project.roleQueue === "Fiber Planning Team" &&
+      !project.pboqRequest?.completedAt) ||
     (project.roleQueue === "Account Manager" &&
       project.state === "Business Case Prepared" &&
       project.decision === "PENDING")

@@ -18,8 +18,6 @@ import {
 import {
   linkCostSourceValues,
   linkOnnetOffnetValues,
-  type LinkCostSource,
-  type LinkOnnetOffnet,
 } from "@/lib/projects-types";
 
 export {
@@ -36,7 +34,6 @@ import {
   workflowTransitions,
   workflowStates,
   type BusinessCaseType,
-  type DecisionOutput,
   type Role,
   type WorkflowState,
 } from "@/lib/workflow";
@@ -74,34 +71,6 @@ export {
   type LinkCostSource,
   type LinkOnnetOffnet,
 } from "@/lib/projects-types";
-
-const linkOnnetOffnetToDb: Record<LinkOnnetOffnet, "ONNET" | "OFFNET"> = {
-  Onnet: "ONNET",
-  Offnet: "OFFNET",
-};
-
-const linkOnnetOffnetFromDb: Record<"ONNET" | "OFFNET", LinkOnnetOffnet> = {
-  ONNET: "Onnet",
-  OFFNET: "Offnet",
-};
-
-const linkCostSourceToDb: Record<
-  LinkCostSource,
-  "PBOQ" | "ACTUAL_SURVEY" | "THIRD_PARTY_QUOTE"
-> = {
-  PBOQ: "PBOQ",
-  "Actual Survey": "ACTUAL_SURVEY",
-  "3rd Party Quote": "THIRD_PARTY_QUOTE",
-};
-
-const linkCostSourceFromDb: Record<
-  "PBOQ" | "ACTUAL_SURVEY" | "THIRD_PARTY_QUOTE",
-  LinkCostSource
-> = {
-  PBOQ: "PBOQ",
-  ACTUAL_SURVEY: "Actual Survey",
-  THIRD_PARTY_QUOTE: "3rd Party Quote",
-};
 
 export const bcLinkInputSchema = z.object({
   linkName: z.string().min(1),
@@ -397,7 +366,6 @@ export type {
 } from "@/lib/project-record-types";
 import type {
   FinanceDecisionRecord,
-  PboqRequestRecord,
   ProjectRecord,
 } from "@/lib/project-record-types";
 
@@ -742,8 +710,8 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
       title: validated.siteName,
       region: validated.region,
       owner: validated.accountManagerName,
-      state: hasExistingPboq ? "Business Case Prepared" : "PBOQ Request Submitted",
-      roleQueue: hasExistingPboq ? "Account Manager" : "Fiber Planning Team",
+      state: "Opportunity Created",
+      roleQueue: "Account Manager",
       type: "Ordinary BC",
       irr: 0,
       payback: 36,
@@ -1144,6 +1112,8 @@ async function localDeleteProject(id: string) {
 
 /** BC preparation drafts are stored in the browser (localStorage) for now. */
 export async function savePreparedBcDraft(id: string, _draft: PreparedBcDraft) {
+  void _draft;
+
   const project = await getProject(id);
 
   if (!project) {

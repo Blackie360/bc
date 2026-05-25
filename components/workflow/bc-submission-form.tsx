@@ -16,10 +16,10 @@ import {
   readFormFieldValue,
   readIndexedFormRows,
   readFileMetadata,
-  readLifecycleStage,
   type BcSubmissionDraft,
   type BcSubmissionLinkDraft,
 } from "@/lib/project-lifecycle-storage";
+import { cn } from "@/lib/utils";
 
 type LinkRow = {
   id: number;
@@ -50,12 +50,14 @@ function FileUploadField({
   required,
   accept,
   defaultFileName,
+  className,
 }: {
   id: string;
   name: string;
   required?: boolean;
   accept?: string;
   defaultFileName?: string;
+  className?: string;
 }) {
   const [fileName, setFileName] = useState(defaultFileName ?? "No file selected");
 
@@ -65,14 +67,24 @@ function FileUploadField({
   }
 
   return (
-    <div className="flex h-10 items-center gap-3 rounded-md border border-[color:var(--color-border)] bg-white px-2">
+    <div
+      className={cn(
+        "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md border border-[color:var(--color-border)] bg-white px-2.5 py-1",
+        className,
+      )}
+    >
       <label
         htmlFor={id}
-        className="cursor-pointer rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 py-1 text-xs font-medium text-[color:var(--color-muted-strong)]"
+        className="inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md bg-[color:var(--color-surface-soft)] px-2.5 py-1.5 text-xs font-medium text-[color:var(--color-muted-strong)] outline-none ring-inset hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--color-primary)]"
       >
-        Choose File
+        Choose file
       </label>
-      <span className="truncate text-xs text-[color:var(--color-muted-strong)]">{fileName}</span>
+      <span
+        className="min-w-0 flex-1 truncate text-left text-xs text-[color:var(--color-muted-strong)]"
+        title={fileName}
+      >
+        {fileName}
+      </span>
       <input
         id={id}
         name={name}
@@ -204,12 +216,22 @@ export function BcSubmissionForm({
       return;
     }
 
-    if (restoredDraft?.links?.length) {
-      setRows(buildRowsFromDraft(restoredDraft.links));
-      setNrcParts(buildNrcPartsFromDraft(restoredDraft.links));
-    }
+    let cancelled = false;
 
-    setHasRestoredDraft(true);
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      if (restoredDraft?.links?.length) {
+        setRows(buildRowsFromDraft(restoredDraft.links));
+        setNrcParts(buildNrcPartsFromDraft(restoredDraft.links));
+      }
+
+      setHasRestoredDraft(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isReady, restoredDraft]);
 
   useEffect(() => {
@@ -474,10 +496,28 @@ export function BcSubmissionForm({
                   </Select>
                 </Field>
                 <Field label="Onnet Capacity">
-                  <Input name={`links[${index}][onnetCapacity]`} defaultValue={row.onnetCapacity} />
+                  <Input
+                    name={`links[${index}][onnetCapacity]`}
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min="0"
+                    defaultValue={row.onnetCapacity}
+                    placeholder="e.g. 100"
+                    className="text-right tabular-nums"
+                  />
                 </Field>
                 <Field label="Offnet Capacity">
-                  <Input name={`links[${index}][offnetCapacity]`} defaultValue={row.offnetCapacity} />
+                  <Input
+                    name={`links[${index}][offnetCapacity]`}
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min="0"
+                    defaultValue={row.offnetCapacity}
+                    placeholder="e.g. 100"
+                    className="text-right tabular-nums"
+                  />
                 </Field>
                 <Field label="Evidence">
                   <FileUploadField
