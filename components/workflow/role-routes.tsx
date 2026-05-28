@@ -24,6 +24,7 @@ import type { ProjectRecord } from "@/lib/projects";
 const roleDescriptions: Record<Role, string> = {
   "Account Manager": "Opportunity intake and PBOQ initiation",
   "Fiber Planning Team": "Planning pack and PBOQ submissions",
+  "Wireless Planning Team": "Wireless planning pack and PBOQ submissions",
   "Solutions Architect": "Design clarification and solution questions",
   "Solutions Engineer": "Technical costing and implementation clarification",
   "BC Analyst / Finance": "Business case finance review",
@@ -38,6 +39,7 @@ const roleDescriptions: Record<Role, string> = {
 const roleCodes: Record<Role, string> = {
   "Account Manager": "AM",
   "Fiber Planning Team": "PLN",
+  "Wireless Planning Team": "WPL",
   "Solutions Architect": "SA",
   "Solutions Engineer": "SE",
   "BC Analyst / Finance": "BC",
@@ -74,8 +76,18 @@ function formatDateTime(value: string) {
 }
 
 function nextRoutingAction(project: ProjectRecord) {
-  if (project.roleQueue === "Fiber Planning Team") {
+  if (
+    project.roleQueue === "Fiber Planning Team" ||
+    project.roleQueue === "Wireless Planning Team"
+  ) {
     return "Generate PBOQ";
+  }
+
+  if (
+    project.roleQueue === "Sales Operations" &&
+    project.state === "Sales Operations Validation"
+  ) {
+    return "Review Order";
   }
 
   if (
@@ -97,6 +109,9 @@ function nextRoutingAction(project: ProjectRecord) {
 function requiresDetailForm(project: ProjectRecord) {
   return (
     project.roleQueue === "Fiber Planning Team" ||
+    project.roleQueue === "Wireless Planning Team" ||
+    (project.roleQueue === "Sales Operations" &&
+      project.state === "Sales Operations Validation") ||
     (project.roleQueue === "Account Manager" &&
       project.state === "Business Case Prepared" &&
       project.decision === "PENDING")

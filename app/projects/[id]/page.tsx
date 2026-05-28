@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Send } from "lucide-react";
 import {
   completeFiberPlanningAction,
+  confirmSalesOperationsOrderAction,
   decideFinanceWorkflowAction,
   prepareBusinessCaseFromPboqAction,
+  reportSalesOperationsDiscrepancyAction,
 } from "@/app/projects/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import {
@@ -15,6 +17,8 @@ import { FinanceDecisionForm } from "@/components/workflow/finance-decision-form
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Textarea } from "@/components/ui/textarea";
 import { parseKickoffLinkNotes } from "@/lib/pboq-kickoff-links";
 import {
   canEditProject,
@@ -57,13 +61,22 @@ export default async function ProjectDetailPage({
 
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
   const fiberPlanningAction = completeFiberPlanningAction.bind(null, project.id);
+  const salesOperationsConfirmAction = confirmSalesOperationsOrderAction.bind(null, project.id);
+  const salesOperationsDiscrepancyAction =
+    reportSalesOperationsDiscrepancyAction.bind(null, project.id);
   const prepareBcAction = prepareBusinessCaseFromPboqAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
-  const isFiberPlanningStage = project.roleQueue === "Fiber Planning Team";
+  const isSalesOperationsStage =
+    project.state === "Sales Operations Validation" && project.roleQueue === "Sales Operations";
+  const isPlanningStage =
+    project.roleQueue === "Fiber Planning Team" ||
+    project.roleQueue === "Wireless Planning Team";
+  const planningLabel =
+    project.roleQueue === "Wireless Planning Team" ? "Wireless Planning" : "Fiber Planning";
   const showEditProject = canEditProject(project);
   const isAccountManagerBcStage = isAccountManagerBcPreparationStage(project);
   const showPboqRequestSummary =
-    !isFiberPlanningStage && !hasPboqDocumentAttachment(project);
+    !isPlanningStage && !hasPboqDocumentAttachment(project);
   const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
   const dashboardHref = roleRoute?.href ?? "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
@@ -163,7 +176,7 @@ export default async function ProjectDetailPage({
                     ["Survey Available", project.pboqRequest.surveyAvailable ? "Yes" : "No"],
                     ["Cost Source", project.pboqRequest.costSource],
                     ["Actual Survey Cost", money(project.pboqRequest.actualSurveyCost)],
-                    ["PBOQ Status", project.pboqRequest.completedAt ? "Completed" : "Pending Fiber Planning"],
+                    ["PBOQ Status", project.pboqRequest.completedAt ? "Completed" : `Pending ${planningLabel}`],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
                       <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
@@ -204,10 +217,10 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
         ) : null}
-        {isFiberPlanningStage ? (
+        {isPlanningStage ? (
           <section className="space-y-3">
             <div>
-              <h2 className="text-base font-semibold text-[color:var(--color-primary)]">Fiber Planning</h2>
+              <h2 className="text-base font-semibold text-[color:var(--color-primary)]">{planningLabel}</h2>
               <p className="text-sm text-[color:var(--color-muted)]">
                 {project.pboqRequest && project.pboqRequest.costLines.length > 1
                   ? "Enter build, material, and wayleave costs for each requested link and upload a separate PBOQ file per link."
@@ -219,6 +232,7 @@ export default async function ProjectDetailPage({
               projectId={project.id}
               initialCostLines={project.pboqRequest?.costLines ?? []}
               kickoffLinkCount={project.pboqRequest?.costLines.length ?? 0}
+              planningLabel={planningLabel}
             />
           </section>
         ) : null}
@@ -280,10 +294,77 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
         ) : null}
+        {isSalesOperationsStage ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>Sales Operations</CardTitle>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                Review and clean the Salesforce order, then validate that the Order Form aligns with the approved BC.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-4">
+                <h3 className="text-sm font-semibold text-[color:var(--color-primary)]">
+                  Order vs BC Alignment Check
+                </h3>
+                <ul className="mt-3 space-y-2 text-sm text-[color:var(--color-muted-strong)]">
+                  <li>Validate the Order Form against the approved Business Case.</li>
+                  <li>Confirm commercial values, link scope, service details, and approval trail.</li>
+                  <li>Clean Salesforce order details before delivery handoff.</li>
+                </ul>
+              </div>
+              <div className="grid gap-3">
+                <form
+                  action={salesOperationsConfirmAction}
+                  className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-white p-4"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--color-primary)]">
+                      Order Matches BC
+                    </h3>
+                    <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                      Push the order to SDU for implementation initiation.
+                    </p>
+                  </div>
+                  <FormSubmitButton size="sm" pendingLabel="Sending to SDU…">
+                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                    Push to SDU
+                  </FormSubmitButton>
+                </form>
+                <form
+                  action={salesOperationsDiscrepancyAction}
+                  className="grid gap-3 rounded-md border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-surface)] p-4"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--color-danger-text)]">
+                      Mismatch / Discrepancy Detected
+                    </h3>
+                    <p className="mt-1 text-xs text-[color:var(--color-danger-text)]">
+                      Redirect the BC back to Finance with discrepancy notes for re-evaluation.
+                    </p>
+                  </div>
+                  <label className="grid gap-2 text-xs font-medium text-[color:var(--color-danger-text)]">
+                    <span>Discrepancy notes</span>
+                    <Textarea
+                      name="notes"
+                      placeholder="Describe the Order Form and BC mismatch Finance must re-evaluate."
+                      minLength={3}
+                      required
+                    />
+                  </label>
+                  <FormSubmitButton size="sm" variant="warning" pendingLabel="Sending to Finance…">
+                    <Send className="h-4 w-4" aria-hidden="true" />
+                    Return to Finance
+                  </FormSubmitButton>
+                </form>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
         {project.financeDecisions?.length ? (
           <Card>
             <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-              <CardTitle>Finance Comments</CardTitle>
+              <CardTitle>Approval Trail Comments</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-4">
               {project.financeDecisions.map((item) => (

@@ -80,12 +80,12 @@ export default async function ProjectsPage({
         ) : null}
         {query.submitted === "pboq" ? (
           <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
-            PBOQ request submitted to Fiber Planning for processing. Your Account Manager queue is shown below.
+            PBOQ request submitted to the correct planning queue for processing.
           </div>
         ) : null}
-        {query.submitted === "fiber" ? (
+        {query.submitted === "fiber" || query.submitted === "planning" ? (
           <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
-            Fiber Planning completed the PBOQ pack. The project is back with Account Manager for BC preparation.
+            Planning completed the PBOQ pack. The project is back with Account Manager for BC preparation.
           </div>
         ) : null}
         {query.draft === "saved" ? (
@@ -120,7 +120,7 @@ export default async function ProjectsPage({
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
                   {visibleProjects.map((project) => (
-                    // Fiber Planning projects are updated via the Fiber Planning form, not generic edit.
+                    // Planning projects are updated via the Planning form, not generic edit.
                     <tr key={project.id} className="hover:bg-[color:var(--color-primary-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-medium">{project.customer}</p>

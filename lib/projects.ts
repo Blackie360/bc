@@ -163,6 +163,7 @@ export const pboqRequestInputSchema = z
   .object({
     opportunityNumber: z.string().min(2),
     customerName: z.string().min(2),
+    technology: z.enum(["Fibre", "Wireless"]),
     siteName: z.string().min(2),
     siteCoordinates: z.string().min(2),
     dateRequested: z.string().min(1),
@@ -172,8 +173,8 @@ export const pboqRequestInputSchema = z
     accountManagerName: z.string().min(2),
     region: z.string().min(2),
     segment: z.string().min(2),
-    mrr: z.coerce.number().positive(),
-    nrr: z.coerce.number().positive(),
+    mrr: z.coerce.number().nonnegative(),
+    nrr: z.coerce.number().nonnegative(),
     contractTermMonths: z.coerce.number().int().positive(),
     pboqMode: z.enum(["existing", "request"]).default("request"),
     routeDistanceKm: z.coerce.number().nonnegative().default(0),
@@ -236,6 +237,7 @@ export const fiberPlanningInputSchema = z.object({
 });
 
 export type FiberPlanningInput = z.infer<typeof fiberPlanningInputSchema>;
+export type WirelessPlanningInput = FiberPlanningInput;
 
 export const preparedBcInputSchema = z.object({
   customerName: z.string().min(2),
@@ -412,6 +414,10 @@ export type FinanceDecisionInput = {
   notes: string;
 };
 
+export type SalesOperationsDiscrepancyInput = {
+  notes: string;
+};
+
 export function isAccountManagerBcPreparationStage(project: ProjectRecord) {
   return (
     project.roleQueue === "Account Manager" &&
@@ -422,7 +428,10 @@ export function isAccountManagerBcPreparationStage(project: ProjectRecord) {
 }
 
 export function canEditProject(project: ProjectRecord) {
-  if (project.roleQueue === "Fiber Planning Team") {
+  if (
+    project.roleQueue === "Fiber Planning Team" ||
+    project.roleQueue === "Wireless Planning Team"
+  ) {
     return false;
   }
 
@@ -665,6 +674,22 @@ function localFinanceDecisionRecord(input: FinanceDecisionInput): FinanceDecisio
   };
 }
 
+function localSalesOperationsDiscrepancyRecord(
+  input: SalesOperationsDiscrepancyInput,
+): FinanceDecisionRecord {
+  const notes = input.notes.trim();
+  if (notes.length < 3) {
+    throw new Error("Discrepancy notes are required.");
+  }
+
+  return {
+    id: createId(),
+    decision: "sales-ops-discrepancy",
+    notes,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 async function localListProjects() {
   return readLocalProjects();
 }
@@ -722,6 +747,19 @@ function deriveProjectCapacity(links: Array<{ capacity?: string }>) {
   return [...new Set(values)].join(", ");
 }
 
+function planningRoleForTechnology(technology: PboqRequestInput["technology"]): Role {
+  switch (technology) {
+    case "Fibre":
+      return "Fiber Planning Team";
+    case "Wireless":
+      return "Wireless Planning Team";
+    default: {
+      const exhaustive: never = technology;
+      return exhaustive;
+    }
+  }
+}
+
 async function localCreatePboqRequest(input: PboqRequestInput) {
   const validated = pboqRequestInputSchema.parse(input);
   const projects = await readLocalProjects();
@@ -736,6 +774,7 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
   const pboqDocument = validated.pboqAttachment
     ? localDocument(validated.pboqAttachment, now)
     : undefined;
+  const planningRole = planningRoleForTechnology(validated.technology);
   const project = createLocalProjectRecord(
     {
       customer: validated.customerName,
@@ -743,7 +782,7 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
       region: validated.region,
       owner: validated.accountManagerName,
       state: hasExistingPboq ? "Business Case Prepared" : "PBOQ Request Submitted",
-      roleQueue: hasExistingPboq ? "Account Manager" : "Fiber Planning Team",
+      roleQueue: hasExistingPboq ? "Account Manager" : planningRole,
       type: "Ordinary BC",
       irr: 0,
       payback: 36,
@@ -816,9 +855,10 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       if (!project.pboqRequest) throw new Error("Project has no PBOQ request.");
       if (
         project.state !== "PBOQ Request Submitted" &&
-        project.state !== "Fiber Planning Generates Costs"
+        project.state !== "Fiber Planning Generates Costs" &&
+        project.state !== "Wireless Planning Generates Costs"
       ) {
-        throw new Error("Project is not in a Fiber Planning stage.");
+        throw new Error("Project is not in a planning stage.");
       }
 
       const kickoffLinkCount =
@@ -1103,6 +1143,77 @@ async function localDecideFinanceWorkflow(id: string, input: FinanceDecisionInpu
   return updatedProject;
 }
 
+async function localConfirmSalesOperationsOrder(id: string) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      if (
+        project.state !== "Sales Operations Validation" ||
+        project.roleQueue !== "Sales Operations"
+      ) {
+        throw new Error("Sales Operations review is only allowed for Sales Operations queue projects.");
+      }
+
+      updatedProject = {
+        ...project,
+        state: "SDU Validation",
+        roleQueue: "SDU",
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localReportSalesOperationsDiscrepancy(
+  id: string,
+  input: SalesOperationsDiscrepancyInput,
+) {
+  let updatedProject: ProjectRecord | undefined;
+  const discrepancy = localSalesOperationsDiscrepancyRecord(input);
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      if (
+        project.state !== "Sales Operations Validation" ||
+        project.roleQueue !== "Sales Operations"
+      ) {
+        throw new Error("Sales Operations discrepancy is only allowed for Sales Operations queue projects.");
+      }
+
+      updatedProject = {
+        ...project,
+        state: "Finance / CFO Approval",
+        roleQueue: "BC Analyst / Finance",
+        certificateIssued: false,
+        revisions: project.revisions + 1,
+        financeDecisions: [...(project.financeDecisions ?? []), discrepancy],
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
 async function localAdvanceProjectToNextStage(id: string) {
   let updatedProject: ProjectRecord | undefined;
 
@@ -1161,6 +1272,10 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
   return localCompleteFiberPlanning(id, input);
 }
 
+export async function completeWirelessPlanning(id: string, input: WirelessPlanningInput) {
+  return localCompleteFiberPlanning(id, input);
+}
+
 export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcInput) {
   return localPrepareBusinessCaseFromPboq(id, input);
 }
@@ -1207,6 +1322,17 @@ export async function updateProject(id: string, input: ProjectInput) {
 
 export async function decideFinanceWorkflow(id: string, input: FinanceDecisionInput) {
   return localDecideFinanceWorkflow(id, input);
+}
+
+export async function confirmSalesOperationsOrder(id: string) {
+  return localConfirmSalesOperationsOrder(id);
+}
+
+export async function reportSalesOperationsDiscrepancy(
+  id: string,
+  input: SalesOperationsDiscrepancyInput,
+) {
+  return localReportSalesOperationsDiscrepancy(id, input);
 }
 
 export async function advanceProjectToNextStage(id: string) {

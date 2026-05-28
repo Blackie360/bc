@@ -72,11 +72,15 @@ export type PboqRequestRecord = {
 
 export type FinanceDecisionRecord = {
   id: string;
-  decision: "approve" | "reject" | "escalate-cfo" | "question-architect";
+  decision:
+    | "approve"
+    | "reject"
+    | "escalate-cfo"
+    | "question-architect"
+    | "sales-ops-discrepancy";
   notes: string;
   createdAt: string;
 };
-
 export type ProjectRecord = ProjectInput & {
   id: string;
   siteName: string;

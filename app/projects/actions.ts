@@ -11,10 +11,13 @@ import {
   createProject,
   advanceProjectToNextStage,
   completeFiberPlanning,
+  completeWirelessPlanning,
+  confirmSalesOperationsOrder,
   decideFinanceWorkflow,
   deleteProject,
   getProject,
   prepareBusinessCaseFromPboq,
+  reportSalesOperationsDiscrepancy,
   savePreparedBcDraft,
   preparedBcDraftSchema,
   type BcDraftInput,
@@ -23,6 +26,7 @@ import {
   type FiberPlanningInput,
   type PboqRequestInput,
   type PreparedBcInput,
+  type SalesOperationsDiscrepancyInput,
   projectInputSchema,
   canEditProject,
   updateProject,
@@ -50,7 +54,6 @@ function projectsHrefForRole(role: Role) {
 }
 
 const accountManagerProjectsHref = projectsHrefForRole("Account Manager");
-const fiberPlanningProjectsHref = projectsHrefForRole("Fiber Planning Team");
 
 export async function createProjectAction(formData: FormData) {
   await assertAccountManagerCanCreateProject();
@@ -62,47 +65,55 @@ export async function createProjectAction(formData: FormData) {
 export async function createPboqRequestAction(formData: FormData) {
   await assertAccountManagerCanCreateProject();
   const accountManagerName = await getCurrentUserDisplayName();
-  await createPboqRequest({
+  const project = await createPboqRequest({
     ...parsePboqRequestForm(formData),
     accountManagerName,
     salesRequestor: accountManagerName,
   });
 
   revalidateProjectViews();
-  redirect(`${accountManagerProjectsHref}&submitted=pboq`);
+  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=pboq`);
 }
 
 export async function completeFiberPlanningAction(id: string, formData: FormData) {
   const existingProject = await getProject(id);
-  const isFiberPlanningStage =
-    existingProject?.roleQueue === "Fiber Planning Team" &&
+  const isPlanningRole =
+    existingProject?.roleQueue === "Fiber Planning Team" ||
+    existingProject?.roleQueue === "Wireless Planning Team";
+  const isPlanningStage =
+    isPlanningRole &&
     (existingProject.state === "PBOQ Request Submitted" ||
-      existingProject.state === "Fiber Planning Generates Costs");
-  if (!existingProject || !isFiberPlanningStage) {
-    throw new Error("Fiber Planning submission is only allowed for Fiber Planning queue projects.");
+      existingProject.state === "Fiber Planning Generates Costs" ||
+      existingProject.state === "Wireless Planning Generates Costs");
+  if (!existingProject || !isPlanningStage) {
+    throw new Error("Planning submission is only allowed for planning queue projects.");
   }
+  const planningRole = existingProject.roleQueue;
 
-  let fiberInput: FiberPlanningInput;
+  let planningInput: FiberPlanningInput;
   try {
-    fiberInput = parseFiberPlanningForm(formData);
+    planningInput = parseFiberPlanningForm(formData);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Fiber planning could not be validated.";
+      error instanceof Error ? error.message : "Planning could not be validated.";
     redirect(`/projects/${encodeURIComponent(id)}?fiberError=${encodeURIComponent(message)}`);
   }
 
   let project;
   try {
-    project = await completeFiberPlanning(id, fiberInput);
+    project =
+      planningRole === "Wireless Planning Team"
+        ? await completeWirelessPlanning(id, planningInput)
+        : await completeFiberPlanning(id, planningInput);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Fiber planning could not be saved.";
+      error instanceof Error ? error.message : "Planning could not be saved.";
     redirect(`/projects/${encodeURIComponent(id)}?fiberError=${encodeURIComponent(message)}`);
   }
 
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
-  redirect(`${fiberPlanningProjectsHref}&submitted=fiber`);
+  redirect(`${projectsHrefForRole(planningRole)}&submitted=planning`);
 }
 
 export async function prepareBusinessCaseFromPboqAction(id: string, formData: FormData) {
@@ -149,8 +160,9 @@ export async function updateProjectAction(id: string, formData: FormData) {
   }
   if (!canEditProject(existing)) {
     throw new Error(
-      existing.roleQueue === "Fiber Planning Team"
-        ? "Fiber Planning projects cannot be edited from Project Edit. Use the Fiber Planning submission form."
+      existing.roleQueue === "Fiber Planning Team" ||
+        existing.roleQueue === "Wireless Planning Team"
+        ? "Planning projects cannot be edited from Project Edit. Use the Planning submission form."
         : "This project cannot be edited while the Account Manager is preparing the business case. Use the BC preparation form.",
     );
   }
@@ -163,6 +175,25 @@ export async function updateProjectAction(id: string, formData: FormData) {
 
 export async function decideFinanceWorkflowAction(id: string, formData: FormData) {
   const project = await decideFinanceWorkflow(id, parseFinanceDecisionForm(formData));
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
+export async function confirmSalesOperationsOrderAction(id: string) {
+  const project = await confirmSalesOperationsOrder(id);
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
+export async function reportSalesOperationsDiscrepancyAction(id: string, formData: FormData) {
+  const project = await reportSalesOperationsDiscrepancy(
+    id,
+    parseSalesOperationsDiscrepancyForm(formData),
+  );
 
   revalidatePath(`/projects/${project.id}`);
   revalidateProjectViews();
@@ -214,6 +245,17 @@ function parseFinanceDecisionForm(formData: FormData): FinanceDecisionInput {
   throw new Error("Finance decision is required.");
 }
 
+function parseSalesOperationsDiscrepancyForm(
+  formData: FormData,
+): SalesOperationsDiscrepancyInput {
+  const notes = textField(formData, "notes").trim();
+  if (notes.length < 3) {
+    throw new Error("Discrepancy notes are required.");
+  }
+
+  return { notes };
+}
+
 const linkFieldNames = [
   "linkName",
   "service",
@@ -248,16 +290,8 @@ type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName" | "sale
 function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   const pboqMode = textField(formData, "pboqMode");
   const links = parsePboqKickoffLinks(formData);
-  const mrr = Number(textField(formData, "mrr"));
-  const nrr = Number(textField(formData, "nrr"));
-
-  if (!Number.isFinite(mrr) || mrr <= 0) {
-    throw new Error("MRR must be a positive number.");
-  }
-
-  if (!Number.isFinite(nrr) || nrr <= 0) {
-    throw new Error("NRR must be a positive number.");
-  }
+  const mrr = numberOrZero(textField(formData, "mrr"));
+  const nrr = numberOrZero(textField(formData, "nrr"));
 
   if (links.length === 0) {
     throw new Error("Add at least one link before submitting the PBOQ request.");
@@ -290,11 +324,12 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
 
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
-    customerName: textField(formData, "customerName"),
+    customerName: textField(formData, "customerName") || textField(formData, "siteName"),
+    technology: textField(formData, "technology") as PboqRequestInput["technology"],
     siteName: textField(formData, "siteName"),
-    siteCoordinates: textField(formData, "siteCoordinates"),
+    siteCoordinates: textField(formData, "siteCoordinates") || normalizedLinks[0].capacity,
     dateRequested: textField(formData, "dateRequested"),
-    leadNetworkPlanner: textField(formData, "leadNetworkPlanner"),
+    leadNetworkPlanner: textField(formData, "leadNetworkPlanner") || "Unassigned",
     designPlanDate: textField(formData, "designPlanDate") || textField(formData, "dateRequested"),
     region: normalizedLinks[0].region,
     segment: "Enterprise",

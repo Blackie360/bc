@@ -216,10 +216,16 @@ export function PboqRequestForm({
               required
             />
           </Field>
-          <Field label="Client" required>
-            <Input name="customerName" required />
+          <Field label="Technology" required>
+            <Select name="technology" required>
+              <option value="Fibre">Fibre</option>
+              <option value="Wireless">Wireless</option>
+            </Select>
           </Field>
-          <Field label="MRR" required>
+          {/* <Field label="Client" required>
+            <Input name="customerName" required />
+          </Field> */}
+          {/* <Field label="MRR" required>
             <Input
               name="mrr"
               type="number"
@@ -228,8 +234,8 @@ export function PboqRequestForm({
               step="0.01"
               required
             />
-          </Field>
-          <Field label="NRR" required>
+          </Field> */}
+          {/* <Field label="NRR" required>
             <Input
               name="nrr"
               type="number"
@@ -238,7 +244,7 @@ export function PboqRequestForm({
               step="0.01"
               required
             />
-          </Field>
+          </Field> */}
           <Field label="Contract Term" required>
             <Select name="contractTermMonths" defaultValue="12" required>
               <option value="12">12 months</option>
@@ -249,16 +255,16 @@ export function PboqRequestForm({
           <Field label="Site Name" required>
             <Input name="siteName" required />
           </Field>
-          <Field label="Site Coordinates" required>
+          {/* <Field label="Site Coordinates" required>
             <Input
               name="siteCoordinates"
               placeholder="1.2975 S, 36.8914 E"
               required
             />
-          </Field>
-          <Field label="Lead Network Planner" required>
+          </Field> */}
+          {/* <Field label="Lead Network Planner" required>
             <Input name="leadNetworkPlanner" required />
-          </Field>
+          </Field> */}
         </CardContent>
       </Card>
 
@@ -323,6 +329,14 @@ export function PboqRequestForm({
                         list="kenya-counties"
                         defaultValue={row.region ?? defaultKickoffRegion}
                         placeholder="County"
+                        required
+                      />
+                    </td>
+                    <td className= "px-2 py-2">
+                      <Input
+                        name={`kickoffLinks[${index}][capacity]`}
+                        defaultValue={row.capacity}
+                        placeholder= "Site Coordinates"
                         required
                       />
                     </td>
@@ -410,11 +424,13 @@ export function FiberPlanningForm({
   projectId,
   initialCostLines = [],
   kickoffLinkCount = 0,
+  planningLabel = "Fiber Planning",
 }: {
   action: (formData: FormData) => void | Promise<void>;
   projectId: string;
   initialCostLines?: PboqCostLineRecord[];
   kickoffLinkCount?: number;
+  planningLabel?: string;
 }) {
   const isMultiLinkKickoff = kickoffLinkCount > 1;
   const formRef = useRef<HTMLFormElement>(null);
@@ -615,7 +631,7 @@ export function FiberPlanningForm({
           <CardTitle className="text-sm">Planning Output</CardTitle>
         </CardHeader>
         <CardContent className="p-4">
-          <Field label="Fiber Planning Notes">
+          <Field label={`${planningLabel} Notes`}>
             <Textarea
               name="fiberPlanningNotes"
               defaultValue={restoredDraft?.fiberPlanningNotes}
@@ -625,7 +641,7 @@ export function FiberPlanningForm({
       </Card>
       <FormSubmitButton pendingLabel="Completing planning…">
         <Save className="h-4 w-4" aria-hidden="true" />
-        Complete Fiber Planning
+        Complete {planningLabel}
       </FormSubmitButton>
     </form>
   );
@@ -1034,7 +1050,7 @@ export function PreparedBcForm({
                     </>
                   ) : (
                     <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                      PBOQ already attached from Fiber Planning.
+                      PBOQ already attached from Planning.
                     </p>
                   )}
                 </Field>
