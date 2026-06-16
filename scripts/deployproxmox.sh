@@ -766,7 +766,7 @@ health_check() {
 
   curl -fsS "http://127.0.0.1:${INTERNAL_PORT}" >/dev/null \
 
-    || die "App did not respond on internal port ${INTERNAL_PORT}"
+     die "App did not respond on internal port ${INTERNAL_PORT}"
 
  
 

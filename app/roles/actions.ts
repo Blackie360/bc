@@ -53,12 +53,12 @@ async function redirectToRoleAssignmentStatus(path: string): Promise<never> {
 export async function saveRoleAssignmentAction(formData: FormData) {
   const role = parseRole(textField(formData, "role"));
   if (!role) {
-    await redirectToRoleAssignmentStatus("/roles?roleAssignment=invalid-role");
+    return await redirectToRoleAssignmentStatus("/roles?roleAssignment=invalid-role");
   }
 
   const email = textField(formData, "email");
   if (!email) {
-    await redirectToRoleAssignmentStatus("/roles?roleAssignment=invalid");
+    return await redirectToRoleAssignmentStatus("/roles?roleAssignment=invalid");
   }
 
   const directoryUsers = await listLdapDirectoryUsers().catch((error) => {
@@ -69,7 +69,7 @@ export async function saveRoleAssignmentAction(formData: FormData) {
   const usersByEmail = new Map(directoryUsers.map((user) => [user.email, user]));
   const user = usersByEmail.get(email) ?? fallbackUserForEmail(email);
   if (!user) {
-    await redirectToRoleAssignmentStatus(`/roles?roleAssignment=invalid&email=${encodeURIComponent(email)}`);
+    return await redirectToRoleAssignmentStatus(`/roles?roleAssignment=invalid&email=${encodeURIComponent(email)}`);
   }
 
   await saveRoleAssignment(role, {
@@ -83,5 +83,5 @@ export async function saveRoleAssignmentAction(formData: FormData) {
     revalidatePath(`/roles/${roleSlug(role)}`);
   }
 
-  await redirectToRoleAssignmentStatus("/roles?roleAssignment=saved");
+  return await redirectToRoleAssignmentStatus("/roles?roleAssignment=saved");
 }
