@@ -12,14 +12,17 @@ import {
   advanceProjectToNextStage,
   completeFiberPlanning,
   completeWirelessPlanning,
+  confirmSduAlignment,
   confirmSalesOperationsOrder,
   decideFinanceWorkflow,
   deleteProject,
   getProject,
   prepareBusinessCaseFromPboq,
   reportSalesOperationsDiscrepancy,
+  reportSduAlignmentMismatch,
   savePreparedBcDraft,
   preparedBcDraftSchema,
+  submitSduSurveyCost,
   type BcDraftInput,
   type BcSubmissionInput,
   type FinanceDecisionInput,
@@ -27,6 +30,8 @@ import {
   type PboqRequestInput,
   type PreparedBcInput,
   type SalesOperationsDiscrepancyInput,
+  type SduAlignmentMismatchInput,
+  type SduSurveyCostInput,
   projectInputSchema,
   canEditProject,
   updateProject,
@@ -72,7 +77,11 @@ export async function createPboqRequestAction(formData: FormData) {
   });
 
   revalidateProjectViews();
-  redirect(`${projectsHrefForRole(project.roleQueue)}&submitted=pboq`);
+  redirect(
+    `${projectsHrefForRole(project.roleQueue)}&submitted=${
+      project.pboqRequest?.costSource === "FIBRE_READY" ? "fibre-ready" : "pboq"
+    }`,
+  );
 }
 
 export async function completeFiberPlanningAction(id: string, formData: FormData) {
@@ -200,6 +209,33 @@ export async function reportSalesOperationsDiscrepancyAction(id: string, formDat
   redirect(`/projects/${project.id}`);
 }
 
+export async function confirmSduAlignmentAction(id: string) {
+  const project = await confirmSduAlignment(id);
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
+export async function reportSduAlignmentMismatchAction(id: string, formData: FormData) {
+  const project = await reportSduAlignmentMismatch(
+    id,
+    parseSduAlignmentMismatchForm(formData),
+  );
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
+export async function submitSduSurveyCostAction(id: string, formData: FormData) {
+  const project = await submitSduSurveyCost(id, parseSduSurveyCostForm(formData));
+
+  revalidatePath(`/projects/${project.id}`);
+  revalidateProjectViews();
+  redirect(`/projects/${project.id}`);
+}
+
 export async function advanceProjectToNextStageAction(id: string) {
   const project = await advanceProjectToNextStage(id);
 
@@ -256,6 +292,21 @@ function parseSalesOperationsDiscrepancyForm(
   return { notes };
 }
 
+function parseSduAlignmentMismatchForm(formData: FormData): SduAlignmentMismatchInput {
+  const notes = textField(formData, "notes").trim();
+  if (notes.length < 3) {
+    throw new Error("SDU mismatch justification is required.");
+  }
+
+  return { notes };
+}
+
+function parseSduSurveyCostForm(formData: FormData): SduSurveyCostInput {
+  return {
+    actualSurveyCost: numberOrZero(textField(formData, "actualSurveyCost")),
+  };
+}
+
 const linkFieldNames = [
   "linkName",
   "service",
@@ -270,6 +321,8 @@ const linkFieldNames = [
   "mrc",
   "nrc",
   "nrr",
+  "nrv",
+  "tcv",
   "onnetCapacity",
   "offnetCapacity",
 ] as const;
@@ -279,7 +332,14 @@ type RawLinkRow = Partial<Record<LinkFieldName, string>>;
 const pboqCostLineFieldNames = ["linkName", "material", "build", "wayleave", "notes"] as const;
 type PboqCostLineFieldName = (typeof pboqCostLineFieldNames)[number];
 type RawPboqCostLineRow = Partial<Record<PboqCostLineFieldName, string>>;
-const pboqKickoffLinkFieldNames = ["linkName", "region", "service", "capacity"] as const;
+const pboqKickoffLinkFieldNames = [
+  "linkName",
+  "region",
+  "siteCoordinates",
+  "buildingName",
+  "service",
+  "capacity",
+] as const;
 type PboqKickoffLinkFieldName = (typeof pboqKickoffLinkFieldNames)[number];
 type RawPboqKickoffLinkRow = Partial<Record<PboqKickoffLinkFieldName, string>>;
 
@@ -289,6 +349,7 @@ type PboqRequestFormFields = Omit<PboqRequestInput, "accountManagerName" | "sale
 
 function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   const pboqMode = textField(formData, "pboqMode");
+  const technology = textField(formData, "technology");
   const links = parsePboqKickoffLinks(formData);
   const mrr = numberOrZero(textField(formData, "mrr"));
   const nrr = numberOrZero(textField(formData, "nrr"));
@@ -298,10 +359,24 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
   }
 
   const normalizedLinks = links.map((link, index) => {
-    const region = link.region?.trim() ?? "";
+    const linkName = link.linkName?.trim() ?? "";
+    if (!linkName) {
+      throw new Error(`Link ${index + 1} requires a link name.`);
+    }
 
+    const region = link.region?.trim() ?? "";
     if (region.length < 2) {
       throw new Error(`Link ${index + 1} requires a region.`);
+    }
+
+    const siteCoordinates = link.siteCoordinates?.trim() ?? "";
+    if (siteCoordinates.length < 2) {
+      throw new Error(`Link ${index + 1} requires site coordinates.`);
+    }
+
+    const buildingName = link.buildingName?.trim() ?? "";
+    if (buildingName.length < 2) {
+      throw new Error(`Link ${index + 1} requires a building name.`);
     }
 
     const capacity = link.capacity?.trim() ?? "";
@@ -315,19 +390,22 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
     }
 
     return {
-      linkName: link.linkName ?? "",
+      linkName,
       region,
       service,
       capacity,
     };
   });
+  const primaryLink = links[0];
+  const siteName = primaryLink.buildingName?.trim() ?? "";
+  const siteCoordinates = primaryLink.siteCoordinates?.trim() ?? "";
 
   return {
     opportunityNumber: textField(formData, "opportunityNumber"),
-    customerName: textField(formData, "customerName") || textField(formData, "siteName"),
-    technology: textField(formData, "technology") as PboqRequestInput["technology"],
-    siteName: textField(formData, "siteName"),
-    siteCoordinates: textField(formData, "siteCoordinates") || normalizedLinks[0].capacity,
+    customerName: textField(formData, "customerName") || siteName,
+    technology: technology as PboqRequestInput["technology"],
+    siteName,
+    siteCoordinates,
     dateRequested: textField(formData, "dateRequested"),
     leadNetworkPlanner: textField(formData, "leadNetworkPlanner") || "Unassigned",
     designPlanDate: textField(formData, "designPlanDate") || textField(formData, "dateRequested"),
@@ -422,9 +500,12 @@ function parsePreparedBcForm(formData: FormData): PreparedBcInput {
     capex: Number(textField(formData, "capex")),
     subsidy: Number(textField(formData, "subsidy")),
     approvedBudget: Number(textField(formData, "approvedBudget")),
+    nrv: numberField(formData, "nrv"),
+    tcv: numberField(formData, "tcv"),
+    exchangeRateKesUsd: Number(textField(formData, "exchangeRateKesUsd")),
     links,
     lsoAttachment: fileAttachment(formData, "lsoAttachment", "LSO"),
-    bcTemplate: fileAttachment(formData, "bcTemplate", "BC_TEMPLATE"),
+    bcTemplates: fileAttachments(formData, "bcTemplate", "BC_TEMPLATE"),
     pboqOrSurveyAttachment: optionalFileAttachment(
       formData,
       "pboqOrSurveyAttachment",
@@ -508,6 +589,9 @@ function parseBcSubmissionForm(formData: FormData): BcSubmissionFormFields {
     capex: Number(textField(formData, "capex")),
     subsidy: Number(textField(formData, "subsidy")),
     approvedBudget: Number(textField(formData, "approvedBudget")),
+    nrv: numberField(formData, "nrv"),
+    tcv: numberField(formData, "tcv"),
+    exchangeRateKesUsd: Number(textField(formData, "exchangeRateKesUsd")),
     links,
     attachments,
   };
@@ -542,6 +626,9 @@ function parseBcDraftForm(formData: FormData): BcDraftFormFields {
     capex: numberField(formData, "capex"),
     subsidy: numberField(formData, "subsidy"),
     approvedBudget: numberField(formData, "approvedBudget"),
+    nrv: numberField(formData, "nrv"),
+    tcv: numberField(formData, "tcv"),
+    exchangeRateKesUsd: numberField(formData, "exchangeRateKesUsd"),
     links,
     attachments,
   };
@@ -601,6 +688,8 @@ function parseLinks(
         mrc: numberOrZero(row.mrc),
         nrc: parsedNrc > 0 ? parsedNrc : computedNrc,
         nrr: numberOrZero(row.nrr),
+        nrv: numberOrZero(row.nrv),
+        tcv: numberOrZero(row.tcv),
         onnetCapacity: row.onnetCapacity ?? "",
         offnetCapacity: row.offnetCapacity ?? "",
       };
@@ -745,6 +834,29 @@ function fileAttachment<TType extends AttachmentType>(
     sizeBytes: value.size,
     storageKey: `metadata/${randomUUID()}-${value.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
   };
+}
+
+function fileAttachments<TType extends AttachmentType>(
+  formData: FormData,
+  name: string,
+  type: TType,
+  requiredMessage = `${name} is required.`,
+) {
+  const values = formData
+    .getAll(name)
+    .filter((value): value is File => value instanceof File && value.size > 0 && value.name.length > 0);
+
+  if (values.length === 0) {
+    throw new Error(requiredMessage);
+  }
+
+  return values.map((value) => ({
+    type,
+    name: value.name,
+    mimeType: value.type || "application/octet-stream",
+    sizeBytes: value.size,
+    storageKey: `metadata/${randomUUID()}-${value.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`,
+  }));
 }
 
 function optionalFileAttachment<TType extends AttachmentType>(

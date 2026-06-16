@@ -145,6 +145,9 @@ function buildBcSubmissionDraft(
     capex: readFormFieldValue(form, "capex"),
     subsidy: readFormFieldValue(form, "subsidy"),
     approvedBudget: readFormFieldValue(form, "approvedBudget"),
+    nrv: readFormFieldValue(form, "nrv"),
+    tcv: readFormFieldValue(form, "tcv"),
+    exchangeRateKesUsd: readFormFieldValue(form, "exchangeRateKesUsd"),
     lsoAttachment: readAttachment("lsoAttachment"),
     bcTemplate: readAttachment("bcTemplate"),
     pboqOrSurveyAttachment: readAttachment("pboqOrSurveyAttachment"),
@@ -163,6 +166,8 @@ function buildBcSubmissionDraft(
       "mrc",
       "nrc",
       "nrr",
+      "nrv",
+      "tcv",
       "onnetCapacity",
       "offnetCapacity",
     ]),
@@ -272,12 +277,7 @@ export function BcSubmissionForm({
               defaultValue={draft?.customerName}
               required
             />
-            <FileUploadField
-              id="lsoAttachment"
-              name="lsoAttachment"
-              required
-              defaultFileName={draft?.lsoAttachment?.name}
-            />
+            
           </Field>
           <Field label="Account Number">
             <Input name="accountNumber" defaultValue={draft?.accountNumber} required />
@@ -343,6 +343,12 @@ export function BcSubmissionForm({
           <Field label="Region">
             <Input name="region" autoComplete="off" defaultValue={draft?.region} required />
           </Field>
+          <FileUploadField
+              id="lsoAttachment"
+              name="lsoAttachment"
+              required
+              defaultFileName={draft?.lsoAttachment?.name}
+            />
           <Field label="Project Executive Summary">
             <Textarea
               name="projectExecutiveSummary"
@@ -416,6 +422,39 @@ export function BcSubmissionForm({
               required
             />
           </Field>
+          <Field label="NRV (USD)">
+            <Input
+              name="nrv"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              defaultValue={draft?.nrv}
+              required
+            />
+          </Field>
+          <Field label="TCV (USD)">
+            <Input
+              name="tcv"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              defaultValue={draft?.tcv}
+              required
+            />
+          </Field>
+          <Field label="Exchange Rate (KES/USD)">
+            <Input
+              name="exchangeRateKesUsd"
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              defaultValue={draft?.exchangeRateKesUsd}
+              required
+            />
+          </Field>
         </CardContent>
       </Card>
 
@@ -433,7 +472,7 @@ export function BcSubmissionForm({
               key={row.id}
               className="space-y-3 rounded-md border border-[color:var(--color-border)] p-3"
             >
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-6">
                 <Field label="Link Name">
                   <Input name={`links[${index}][linkName]`} defaultValue={row.linkName} required />
                 </Field>
@@ -469,6 +508,7 @@ export function BcSubmissionForm({
                     required
                   >
                     <option>PBOQ</option>
+                    <option>Fibre Ready</option>
                     <option>Actual Survey</option>
                     <option>3rd Party Quote</option>
                   </Select>
@@ -533,7 +573,7 @@ export function BcSubmissionForm({
                   <Input
                     name={`links[${index}][mrr]`}
                     type="number"
-                    step="0.01"
+                    step="0.1"
                     min="0"
                     defaultValue={row.mrr}
                     required
@@ -546,6 +586,24 @@ export function BcSubmissionForm({
                     step="0.01"
                     min="0"
                     defaultValue={row.nrr}
+                  />
+                </Field>
+                <Field label="NRV(USD)">
+                  <Input
+                    name={`links[${index}][nrv]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.nrv}
+                  />
+                </Field>
+                <Field label="TCV(USD)">
+                  <Input
+                    name={`links[${index}][tcv]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.tcv}
                   />
                 </Field>
               </div>

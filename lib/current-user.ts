@@ -5,7 +5,9 @@ import { roleSlug, roles, type Role } from "@/lib/workflow";
 
 /** Set by auth middleware or a reverse proxy once sign-in exists. */
 const DISPLAY_NAME_HEADER = "x-bc-user-display-name";
+const EMAIL_HEADER = "x-bc-user-email";
 const ROLE_HEADER = "x-bc-user-role";
+const USERNAME_HEADER = "x-bc-user-username";
 const LOCAL_DEV_DEFAULT_ROLE: Role = "Account Manager";
 
 function parseRole(value: string | null | undefined): Role | null {
@@ -37,6 +39,34 @@ export async function getCurrentUserDisplayName(): Promise<string> {
   }
 
   return "Current User";
+}
+
+export async function getCurrentUserEmail(): Promise<string | null> {
+  const headerEmail = (await headers()).get(EMAIL_HEADER)?.trim().toLowerCase();
+  if (headerEmail) {
+    return headerEmail;
+  }
+
+  const fromEnv = process.env.BC_APP_USER_EMAIL?.trim().toLowerCase();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  return null;
+}
+
+export async function getCurrentUsername(): Promise<string | null> {
+  const headerUsername = (await headers()).get(USERNAME_HEADER)?.trim();
+  if (headerUsername) {
+    return headerUsername;
+  }
+
+  const fromEnv = process.env.BC_APP_USERNAME?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  return null;
 }
 
 /**

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleChip } from "@/components/workflow/role-chip";
 import { canEditProject, listProjectsForPage } from "@/lib/projects";
+import { getCurrentUserEmail } from "@/lib/current-user";
+import { getAssignedRoleForEmail } from "@/lib/role-assignments";
 import { getRoleRoute, roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +35,14 @@ export default async function ProjectsPage({
   searchParams: Promise<{ draft?: string; role?: string; saved?: string; submitted?: string }>;
 }) {
   const query = await searchParams;
+  const currentEmail = await getCurrentUserEmail();
+  const assignedRole = await getAssignedRoleForEmail(currentEmail ?? undefined);
+  const assignedRoute = assignedRole ? roleRoutes.find((route) => route.role === assignedRole) : undefined;
+
+  if (assignedRoute && query.role !== assignedRoute.slug) {
+    redirect(`/projects?role=${assignedRoute.slug}`);
+  }
+
   const roleRoute = query.role ? getRoleRoute(query.role) : undefined;
   const { projects, dataUnavailable } = await listProjectsForPage();
   const visibleProjects = [...(roleRoute
@@ -81,6 +92,11 @@ export default async function ProjectsPage({
         {query.submitted === "pboq" ? (
           <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
             PBOQ request submitted to the correct planning queue for processing.
+          </div>
+        ) : null}
+        {query.submitted === "fibre-ready" ? (
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
+            Fibre-ready opportunity submitted. The project is ready for BC preparation with no PBOQ required.
           </div>
         ) : null}
         {query.submitted === "fiber" || query.submitted === "planning" ? (

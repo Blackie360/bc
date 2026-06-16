@@ -3,19 +3,25 @@ import {
   Plus,
 } from "lucide-react";
 import { advanceProjectToNextStageAction } from "@/app/projects/actions";
+import { saveRoleAssignmentAction } from "@/app/roles/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Input } from "@/components/ui/input";
 import { RoleChip } from "@/components/workflow/role-chip";
+import { Select } from "@/components/ui/select";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import type { LdapDirectoryUser } from "@/lib/auth/ldap";
+import type { RoleAssignment } from "@/lib/role-assignments";
 import {
   roleRoutes,
+  roleSlug,
   type Role,
   workflowTransitions,
 } from "@/lib/workflow";
@@ -52,6 +58,7 @@ const roleCodes: Record<Role, string> = {
 };
 
 type Transition = (typeof workflowTransitions)[number];
+type RoleAssignmentsByRole = Partial<Record<Role, RoleAssignment>>;
 
 const CLOSED_STATE = "Project Closure & Reporting" as const;
 
@@ -150,12 +157,201 @@ function DataUnavailableNotice() {
   );
 }
 
+function RoleAssignmentNotice({
+  status,
+  invalidEmail,
+}: {
+  status?: string;
+  invalidEmail?: string;
+}) {
+  if (status === "saved") {
+    return (
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        Role allocation was saved. The assigned AD user will receive that role on their next login.
+      </div>
+    );
+  }
+
+  if (status === "invalid-role") {
+    return (
+      <div className="rounded-md border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-surface)] px-4 py-3 text-sm text-[color:var(--color-danger-text)]">
+        Select a valid role before saving.
+      </div>
+    );
+  }
+
+  if (status === "invalid") {
+    return (
+      <div className="rounded-md border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-surface)] px-4 py-3 text-sm text-[color:var(--color-danger-text)]">
+        {invalidEmail ? `${invalidEmail} is not available in AD.` : "Select a valid AD email before saving."}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function RoleAssignmentsPanel({
+  directoryUsers,
+  directoryUnavailable,
+  roleAssignments,
+  roleAssignmentStatus,
+  invalidAssignmentEmail,
+}: {
+  directoryUsers: LdapDirectoryUser[];
+  directoryUnavailable: boolean;
+  roleAssignments: RoleAssignmentsByRole;
+  roleAssignmentStatus?: string;
+  invalidAssignmentEmail?: string;
+}) {
+  const hasDirectoryUsers = !directoryUnavailable && directoryUsers.length > 0;
+  const emailOptionsListId = "role-assignment-email-options";
+
+  return (
+    <Card>
+      <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+        <CardTitle className="text-sm">Role Allocation</CardTitle>
+        <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+          Pick a workflow role and an AD email address. The selected person gets the abilities for that role after login.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4">
+        <RoleAssignmentNotice
+          status={roleAssignmentStatus}
+          invalidEmail={invalidAssignmentEmail}
+        />
+        {directoryUnavailable ? (
+          <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] px-4 py-3 text-sm text-[color:var(--color-warning-text)]">
+            AD users could not be loaded. You can still enter a corporate email manually.
+          </div>
+        ) : null}
+        {!directoryUnavailable && directoryUsers.length === 0 ? (
+          <div className="rounded-md border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-surface)] px-4 py-3 text-sm text-[color:var(--color-warning-text)]">
+            No AD email options were returned. You can still enter a corporate email manually.
+          </div>
+        ) : null}
+        <form
+          action={saveRoleAssignmentAction}
+          className="grid gap-3 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] p-4 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)_auto]"
+        >
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase text-[color:var(--color-muted)]" htmlFor="role">
+              Role
+            </label>
+            <Select id="role" name="role" required>
+              <option value="">Select role</option>
+              {roleRoutes.map((route) => (
+                <option key={route.role} value={roleSlug(route.role)}>
+                  {route.role}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase text-[color:var(--color-muted)]" htmlFor="email">
+              AD Email
+            </label>
+            {hasDirectoryUsers ? (
+              <Select id="email" name="email" required>
+                <option value="">Select AD email</option>
+                {directoryUsers.map((user) => (
+                  <option key={user.email} value={user.email}>
+                    {user.displayName} - {user.email}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  list={emailOptionsListId}
+                  placeholder="name@company.com"
+                  required
+                />
+                <datalist id={emailOptionsListId}>
+                  {directoryUsers.map((user) => (
+                    <option key={user.email} value={user.email}>
+                      {user.displayName}
+                    </option>
+                  ))}
+                </datalist>
+              </>
+            )}
+          </div>
+          <div className="flex items-end">
+            <FormSubmitButton
+              size="sm"
+              pendingLabel="Assigning…"
+              className="w-full whitespace-nowrap"
+            >
+              Assign Role
+            </FormSubmitButton>
+          </div>
+        </form>
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase text-[color:var(--color-muted)]">
+            Current Allocations
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] overflow-hidden rounded-lg border border-[color:var(--color-border)] text-left text-sm">
+              <thead className="bg-[color:var(--color-surface-soft)] text-[11px] uppercase text-[color:var(--color-muted)]">
+                <tr>
+                  <th className="px-4 py-3 font-bold">Role</th>
+                  <th className="px-4 py-3 font-bold">Assigned Person</th>
+                  <th className="px-4 py-3 font-bold">AD Email</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[color:var(--color-border)]">
+                {roleRoutes.map((route) => {
+                  const assignment = roleAssignments[route.role];
+
+                  return (
+                    <tr key={route.role}>
+                      <td className="px-4 py-4">
+                        <RoleChip role={route.role} />
+                      </td>
+                      <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
+                        {assignment ? (
+                          <span className="font-medium text-[color:var(--color-foreground)]">
+                            {assignment.displayName}
+                          </span>
+                        ) : (
+                          "Not assigned"
+                        )}
+                      </td>
+                      <td className="px-4 py-4 font-mono text-xs text-[color:var(--color-muted-strong)]">
+                        {assignment?.email ?? "Not assigned"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function RoleRoutesIndex({
   projects,
   dataUnavailable = false,
+  directoryUsers = [],
+  directoryUnavailable = false,
+  roleAssignments = {},
+  roleAssignmentStatus,
+  invalidAssignmentEmail,
 }: {
   projects: ProjectRecord[];
   dataUnavailable?: boolean;
+  directoryUsers?: LdapDirectoryUser[];
+  directoryUnavailable?: boolean;
+  roleAssignments?: RoleAssignmentsByRole;
+  roleAssignmentStatus?: string;
+  invalidAssignmentEmail?: string;
 }) {
   const ongoingProjects = [...projects.filter(isOngoingProject)].sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
@@ -180,6 +376,13 @@ export function RoleRoutesIndex({
       />
       <div className="space-y-5 px-6 pb-8 pt-6">
         {dataUnavailable ? <DataUnavailableNotice /> : null}
+        <RoleAssignmentsPanel
+          directoryUsers={directoryUsers}
+          directoryUnavailable={directoryUnavailable}
+          roleAssignments={roleAssignments}
+          roleAssignmentStatus={roleAssignmentStatus}
+          invalidAssignmentEmail={invalidAssignmentEmail}
+        />
         <section className="grid gap-3 md:grid-cols-4">
           <Card>
             <CardContent className="p-4">

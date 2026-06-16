@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Pencil, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Eye, Pencil, Send } from "lucide-react";
 import {
   completeFiberPlanningAction,
+  confirmSduAlignmentAction,
   confirmSalesOperationsOrderAction,
   decideFinanceWorkflowAction,
   prepareBusinessCaseFromPboqAction,
   reportSalesOperationsDiscrepancyAction,
+  reportSduAlignmentMismatchAction,
+  submitSduSurveyCostAction,
 } from "@/app/projects/actions";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import {
@@ -18,13 +21,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { parseKickoffLinkNotes } from "@/lib/pboq-kickoff-links";
 import {
+  SURVEY_COST_DEVIATION_THRESHOLD_PERCENT,
   canEditProject,
   getProject,
   hasPboqDocumentAttachment,
   isAccountManagerBcPreparationStage,
+  isFibreReadyOpportunity,
 } from "@/lib/projects";
 import { roleRoutes } from "@/lib/workflow";
 
@@ -56,7 +62,7 @@ export default async function ProjectDetailPage({
   const project = await getProject(id);
 
   if (!project) {
-    notFound();
+    return notFound();
   }
 
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
@@ -64,10 +70,14 @@ export default async function ProjectDetailPage({
   const salesOperationsConfirmAction = confirmSalesOperationsOrderAction.bind(null, project.id);
   const salesOperationsDiscrepancyAction =
     reportSalesOperationsDiscrepancyAction.bind(null, project.id);
+  const sduAlignmentConfirmAction = confirmSduAlignmentAction.bind(null, project.id);
+  const sduAlignmentMismatchAction = reportSduAlignmentMismatchAction.bind(null, project.id);
+  const sduSurveyCostAction = submitSduSurveyCostAction.bind(null, project.id);
   const prepareBcAction = prepareBusinessCaseFromPboqAction.bind(null, project.id);
   const isFinanceStage = project.state === "Finance / CFO Approval";
   const isSalesOperationsStage =
     project.state === "Sales Operations Validation" && project.roleQueue === "Sales Operations";
+  const isSDUStage = project.state === "SDU Validation" && project.roleQueue === "SDU";
   const isPlanningStage =
     project.roleQueue === "Fiber Planning Team" ||
     project.roleQueue === "Wireless Planning Team";
@@ -75,11 +85,16 @@ export default async function ProjectDetailPage({
     project.roleQueue === "Wireless Planning Team" ? "Wireless Planning" : "Fiber Planning";
   const showEditProject = canEditProject(project);
   const isAccountManagerBcStage = isAccountManagerBcPreparationStage(project);
+  const isFibreReady = isFibreReadyOpportunity(project);
   const showPboqRequestSummary =
     !isPlanningStage && !hasPboqDocumentAttachment(project);
   const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
   const dashboardHref = roleRoute?.href ?? "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
+  const certificateDocument = project.certificate
+    ? project.documents.find((document) => document.id === project.certificate?.documentId)
+    : null;
+  const certificateHref = `/projects/${encodeURIComponent(project.id)}/certificate`;
 
   return (
     <AdminShell
@@ -162,10 +177,77 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
         </section>
+        {project.certificate ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>BC Approval Certificate</CardTitle>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                Certificate generated, uploaded to the Salesforce Opportunity, and distributed to the approval handoff teams.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-3 p-4 md:grid-cols-3">
+              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                  Certificate
+                </p>
+                <p className="mt-2 font-medium text-[color:var(--color-primary)]">
+                  {certificateDocument?.name ?? "BC Approval Certificate"}
+                </p>
+                <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                  Issued{" "}
+                  {new Intl.DateTimeFormat("en-US", {
+                    month: "short",
+                    day: "2-digit",
+                    year: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }).format(new Date(project.certificate.issuedAt))}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href={certificateHref} target="_blank" rel="noreferrer">
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                      Preview
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm">
+                    <Link href={`${certificateHref}?download=1`}>
+                      <Download className="h-4 w-4" aria-hidden="true" />
+                      Download
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                  Salesforce Opportunity
+                </p>
+                <p className="mt-2 font-mono text-sm font-medium text-[color:var(--color-primary)]">
+                  {project.certificate.salesforceOpportunityId}
+                </p>
+                <Badge className="mt-2 capitalize" variant="info">
+                  {project.certificate.salesforceUploadStatus}
+                </Badge>
+              </div>
+              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                  Distributed To
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {project.certificate.distributedTo.map((recipient) => (
+                    <Badge key={recipient} variant="success">
+                      {recipient}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
         {showPboqRequestSummary ? (
           <Card>
             <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
-              <CardTitle>PBOQ Request</CardTitle>
+              <CardTitle>{isFibreReady ? "Fibre Ready Opportunity" : "PBOQ Request"}</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 p-4 md:grid-cols-3">
               {project.pboqRequest ? (
@@ -174,9 +256,16 @@ export default async function ProjectDetailPage({
                     ["Route Distance", `${project.pboqRequest.routeDistanceKm} km`],
                     ["Site Count", project.pboqRequest.siteCount.toString()],
                     ["Survey Available", project.pboqRequest.surveyAvailable ? "Yes" : "No"],
-                    ["Cost Source", project.pboqRequest.costSource],
+                    ["Cost Source", isFibreReady ? "Fibre Ready" : project.pboqRequest.costSource],
                     ["Actual Survey Cost", money(project.pboqRequest.actualSurveyCost)],
-                    ["PBOQ Status", project.pboqRequest.completedAt ? "Completed" : `Pending ${planningLabel}`],
+                    [
+                      "PBOQ Status",
+                      isFibreReady
+                        ? "Not required"
+                        : project.pboqRequest.completedAt
+                          ? "Completed"
+                          : `Pending ${planningLabel}`,
+                    ],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-md border border-[color:var(--color-border)] bg-white p-3">
                       <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
@@ -348,6 +437,109 @@ export default async function ProjectDetailPage({
                     <Textarea
                       name="notes"
                       placeholder="Describe the Order Form and BC mismatch Finance must re-evaluate."
+                      minLength={3}
+                      required
+                    />
+                  </label>
+                  <FormSubmitButton size="sm" variant="warning" pendingLabel="Sending to Finance…">
+                    <Send className="h-4 w-4" aria-hidden="true" />
+                    Return to Finance
+                  </FormSubmitButton>
+                </form>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+        {isSDUStage ? (
+          <Card>
+            <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+              <CardTitle>SDU Implementation Initiation</CardTitle>
+              <p className="text-sm text-[color:var(--color-muted)]">
+                Validate alignment across the BC, Order, and technical details before survey handling and site acquisition.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-md border border-[color:var(--color-border)] bg-white p-4">
+                <h3 className="text-sm font-semibold text-[color:var(--color-primary)]">
+                  SDU Alignment Check
+                </h3>
+                <ul className="mt-3 space-y-2 text-sm text-[color:var(--color-muted-strong)]">
+                  <li>Confirm the approved BC aligns with Order details and technical scope.</li>
+                  <li>Use the existing survey cost when survey evidence already exists.</li>
+                  <li>Submit actual survey cost when a new survey is required.</li>
+                  <li>
+                    Survey deviations above {SURVEY_COST_DEVIATION_THRESHOLD_PERCENT}% require a
+                    revised BC and repeat approval workflow.
+                  </li>
+                </ul>
+              </div>
+              <div className="grid gap-3">
+                <form
+                  action={sduAlignmentConfirmAction}
+                  className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-white p-4"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--color-primary)]">
+                      Alignment Confirmed
+                    </h3>
+                    <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                      Existing survey evidence is available. Proceed to Site Acquisition with the
+                      recorded survey cost.
+                    </p>
+                  </div>
+                  <FormSubmitButton size="sm" pendingLabel="Sending to Site Acquisition…">
+                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                    Proceed to Site Acquisition
+                  </FormSubmitButton>
+                </form>
+                <form
+                  action={sduSurveyCostAction}
+                  className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-white p-4"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--color-primary)]">
+                      No Survey Exists
+                    </h3>
+                    <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                      Submit the actual site survey cost after completion. The system checks variance
+                      before routing the project.
+                    </p>
+                  </div>
+                  <label className="grid gap-2 text-xs font-medium text-[color:var(--color-muted-strong)]">
+                    <span>Actual survey cost</span>
+                    <Input
+                      name="actualSurveyCost"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      defaultValue={project.pboqRequest?.actualSurveyCost || ""}
+                      required
+                    />
+                  </label>
+                  <FormSubmitButton size="sm" pendingLabel="Checking variance…">
+                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                    Submit Survey Cost
+                  </FormSubmitButton>
+                </form>
+                <form
+                  action={sduAlignmentMismatchAction}
+                  className="grid gap-3 rounded-md border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-surface)] p-4"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-[color:var(--color-danger-text)]">
+                      Mismatch / Oversight Detected
+                    </h3>
+                    <p className="mt-1 text-xs text-[color:var(--color-danger-text)]">
+                      Revert the BC to Finance with justification so Finance can re-evaluate and
+                      issue an updated approval.
+                    </p>
+                  </div>
+                  <label className="grid gap-2 text-xs font-medium text-[color:var(--color-danger-text)]">
+                    <span>Justification</span>
+                    <Textarea
+                      name="notes"
+                      placeholder="Describe the BC, Order, or technical detail mismatch Finance must re-evaluate."
                       minLength={3}
                       required
                     />

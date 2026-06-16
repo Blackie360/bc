@@ -17,6 +17,7 @@ import {
   readFormFieldValue,
   readIndexedFormRows,
   readFileMetadata,
+  readFileMetadataList,
   type FiberPlanningLineDraft,
   type PreparedBcDraft,
   readLifecycleStage,
@@ -27,6 +28,7 @@ import {
   type PboqCostLineRecord,
 } from "@/lib/pboq-kickoff-links";
 import type { ProjectRecord } from "@/lib/project-record-types";
+import { deriveDecision } from "@/lib/workflow";
 
 const kenyaCounties = [
   "Baringo",
@@ -120,18 +122,26 @@ function FileUploadField({
   required,
   accept,
   defaultFileName,
+  multiple = false,
 }: {
   id: string;
   name: string;
   required?: boolean;
   accept?: string;
   defaultFileName?: string;
+  multiple?: boolean;
 }) {
   const [fileName, setFileName] = useState(defaultFileName ?? "No file selected");
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
-    const nextName = event.currentTarget.files?.[0]?.name;
-    setFileName(nextName && nextName.length > 0 ? nextName : "No file selected");
+    const files = Array.from(event.currentTarget.files ?? []);
+
+    if (files.length === 0) {
+      setFileName("No file selected");
+      return;
+    }
+
+    setFileName(files.map((file) => file.name).join(", "));
   }
 
   return (
@@ -149,6 +159,7 @@ function FileUploadField({
         type="file"
         required={required}
         accept={accept}
+        multiple={multiple}
         onChange={handleChange}
         className="sr-only"
       />
@@ -162,6 +173,8 @@ type FiberPlanningRow = Row & FiberPlanningLineDraft;
 type KickoffLinkRow = Row & {
   linkName?: string;
   region?: string;
+  siteCoordinates?: string;
+  buildingName?: string;
   service?: "EPL" | "DIA" | "DFA";
   capacity?: string;
 };
@@ -174,9 +187,11 @@ export function PboqRequestForm({
   action: (formData: FormData) => void | Promise<void>;
 }) {
   const todayDate = new Date().toISOString().slice(0, 10);
+  const [technology, setTechnology] = useState("Fibre Entry");
   const [linkRows, setLinkRows] = useState<KickoffLinkRow[]>([
     { id: 1, region: defaultKickoffRegion, service: "EPL" },
   ]);
+  const isFibreReady = technology === "Fibre Ready";
 
   function addLinkRow() {
     setLinkRows((current) => [
@@ -205,7 +220,7 @@ export function PboqRequestForm({
         </CardHeader>
         <CardContent className="grid gap-4 p-4 md:grid-cols-2">
           <Field label="Opportunity Number" required>
-            <Input name="opportunityNumber" required />
+            <Input name="opportunityNumber" placeholder="LT-OPP-000000" required />
           </Field>
           <Field label="Date Requested" required>
             <Input
@@ -217,14 +232,20 @@ export function PboqRequestForm({
             />
           </Field>
           <Field label="Technology" required>
-            <Select name="technology" required>
-              <option value="Fibre">Fibre</option>
+            <Select
+              name="technology"
+              value={technology}
+              onChange={(event) => setTechnology(event.currentTarget.value)}
+              required
+            >
+              <option value="Fibre Entry">Fibre Entry</option>
+              <option value="Fibre Ready">Fibre Ready</option>
               <option value="Wireless">Wireless</option>
             </Select>
           </Field>
-          {/* <Field label="Client" required>
+          <Field label="Client Name" required>
             <Input name="customerName" required />
-          </Field> */}
+          </Field>
           {/* <Field label="MRR" required>
             <Input
               name="mrr"
@@ -234,7 +255,7 @@ export function PboqRequestForm({
               step="0.01"
               required
             />
-          </Field> */}
+          </Field>
           {/* <Field label="NRR" required>
             <Input
               name="nrr"
@@ -252,9 +273,9 @@ export function PboqRequestForm({
               <option value="36">36 months</option>
             </Select>
           </Field>
-          <Field label="Site Name" required>
+          {/* <Field label="Site Name" required>
             <Input name="siteName" required />
-          </Field>
+          </Field> */}
           {/* <Field label="Site Coordinates" required>
             <Input
               name="siteCoordinates"
@@ -305,7 +326,7 @@ export function PboqRequestForm({
                       *
                     </span>
                   </th>
-                  {["Service *", "Capacity *", "Action"].map((label) => (
+                  {["Site Coordinates *", "Building Name *", "Service *", "Capacity *", "Action"].map((label) => (
                     <th key={label} className="px-2 py-2 font-medium">
                       {label}
                     </th>
@@ -332,11 +353,19 @@ export function PboqRequestForm({
                         required
                       />
                     </td>
-                    <td className= "px-2 py-2">
+                    <td className="px-2 py-2">
                       <Input
-                        name={`kickoffLinks[${index}][capacity]`}
-                        defaultValue={row.capacity}
-                        placeholder= "Site Coordinates"
+                        name={`kickoffLinks[${index}][siteCoordinates]`}
+                        defaultValue={row.siteCoordinates}
+                        placeholder="1.2975 S, 36.8914 E"
+                        required
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        name={`kickoffLinks[${index}][buildingName]`}
+                        defaultValue={row.buildingName}
+                        placeholder="Building Name"
                         required
                       />
                     </td>
@@ -379,9 +408,9 @@ export function PboqRequestForm({
         </CardContent>
       </Card>
 
-      <FormSubmitButton pendingLabel="Submitting PBOQ…">
+      <FormSubmitButton pendingLabel={isFibreReady ? "Starting opportunity…" : "Submitting PBOQ…"}>
         <Save className="h-4 w-4" aria-hidden="true" />
-        Request PBOQ
+        {isFibreReady ? "Start Opportunity" : "Request PBOQ"}
       </FormSubmitButton>
     </form>
   );
@@ -653,7 +682,7 @@ type LinkRowState = {
   service?: string;
   technology?: string;
   onnetOffnet?: "Onnet" | "Offnet";
-  costSource?: "PBOQ" | "Actual Survey" | "3rd Party Quote";
+  costSource?: "PBOQ" | "Fibre Ready" | "Actual Survey" | "3rd Party Quote";
   onnetCapacity?: string;
   offnetCapacity?: string;
   newBuildCost?: string;
@@ -665,16 +694,32 @@ type LinkRowState = {
   nrr?: string;
 };
 
+function isFibreReadyProject(project: ProjectRecord) {
+  return (
+    project.pboqRequest?.technology === "Fibre Ready" ||
+    project.pboqRequest?.costSource === "FIBRE_READY"
+  );
+}
+
 function defaultRevenueForNewRow(project: ProjectRecord, linkCount: number) {
+  const mrr = linkCount === 1 ? String(project.opportunityMrr) : "0";
+  const mrc = "0";
+
   if (linkCount !== 1) {
-    return { mrc: "0", mrr: "0", nrr: "0" };
+    return { mrc, mrr, nrr: "0" };
   }
 
   return {
-    mrc: "0",
-    mrr: String(project.opportunityMrr),
-    nrr: String(project.opportunityNrr),
+    mrc,
+    mrr,
+    nrr: String(calculateNrr(project.opportunityMrr, 0)),
   };
+}
+
+function bcTemplateFileNames(draft?: PreparedBcDraft | null) {
+  const attachments = draft?.bcTemplates ?? (draft?.bcTemplate ? [draft.bcTemplate] : []);
+
+  return attachments.length > 0 ? attachments.map((attachment) => attachment.name).join(", ") : undefined;
 }
 
 function mapDraftLinkToRow(
@@ -696,7 +741,7 @@ function mapDraftLinkToRow(
     wayleaveCost: link.wayleaveCost,
     mrc: link.mrc,
     mrr: link.mrr,
-    nrr: link.nrr,
+    nrr: String(calculateNrr(numberOrZero(link.mrr), numberOrZero(link.mrc))),
   };
 }
 
@@ -704,6 +749,10 @@ function buildInitialLinkRows(
   project: ProjectRecord,
   draft?: PreparedBcDraft | null,
 ): LinkRowState[] {
+  const isFibreReady = isFibreReadyProject(project);
+  const defaultTechnology = isFibreReady ? "Fibre Ready" : "Fiber";
+  const defaultCostSource = isFibreReady ? "Fibre Ready" : "PBOQ";
+
   if (draft?.links && draft.links.length > 0) {
     return draft.links.map(mapDraftLinkToRow);
   }
@@ -713,9 +762,9 @@ function buildInitialLinkRows(
       id: index + 1,
       linkName: link.linkName,
       service: link.service || "DIA",
-      technology: link.technology || "Fiber",
+      technology: link.technology || defaultTechnology,
       onnetOffnet: link.onnetOffnet ?? "Onnet",
-      costSource: link.costSource ?? "PBOQ",
+      costSource: link.costSource ?? defaultCostSource,
       onnetCapacity: link.onnetCapacity ?? undefined,
       offnetCapacity: link.offnetCapacity ?? undefined,
       newBuildCost: String(link.newBuildCost),
@@ -724,7 +773,7 @@ function buildInitialLinkRows(
       wayleaveCost: String(link.wayleaveCost),
       mrc: String(link.mrc),
       mrr: String(link.mrr),
-      nrr: String(link.nrr),
+      nrr: String(calculateNrr(link.mrr, link.mrc)),
     }));
   }
 
@@ -737,8 +786,8 @@ function buildInitialLinkRows(
         id: 1,
         onnetOffnet: "Onnet",
         service: "DIA",
-        technology: "Fiber",
-        costSource: "PBOQ",
+        technology: defaultTechnology,
+        costSource: defaultCostSource,
         ...revenue,
       },
     ];
@@ -752,12 +801,13 @@ function buildInitialLinkRows(
       linkName: line.linkName,
       onnetOffnet: "Onnet",
       service: kickoff.service ?? project.requiredService ?? "DIA",
-      technology: "Fiber",
-      costSource: "PBOQ",
+      technology: defaultTechnology,
+      costSource: defaultCostSource,
       onnetCapacity: kickoff.capacity ?? project.capacity ?? undefined,
       newBuildCost: String(line.build),
       materialCost: String(line.material),
       wayleaveCost: String(line.wayleave),
+      provisioningCost: "0",
       ...defaultRevenueForNewRow(project, costLines.length),
     };
   });
@@ -771,6 +821,10 @@ function buildPreparedBcDraft(
   const readAttachment = (name: string) => {
     const input = form.elements.namedItem(name);
     return input instanceof HTMLInputElement ? readFileMetadata(input) : undefined;
+  };
+  const readAttachments = (name: string) => {
+    const input = form.elements.namedItem(name);
+    return input instanceof HTMLInputElement ? readFileMetadataList(input) : undefined;
   };
 
   return {
@@ -788,8 +842,12 @@ function buildPreparedBcDraft(
     capex: Number(readFormFieldValue(form, "capex")) || undefined,
     subsidy: Number(readFormFieldValue(form, "subsidy")) || undefined,
     approvedBudget: Number(readFormFieldValue(form, "approvedBudget")) || undefined,
+    nrv: Number(readFormFieldValue(form, "nrv")) || undefined,
+    tcv: Number(readFormFieldValue(form, "tcv")) || undefined,
+    exchangeRateKesUsd: Number(readFormFieldValue(form, "exchangeRateKesUsd")) || undefined,
     lsoAttachment: readAttachment("lsoAttachment"),
     bcTemplate: readAttachment("bcTemplate"),
+    bcTemplates: readAttachments("bcTemplate"),
     pboqOrSurveyAttachment: readAttachment("pboqOrSurveyAttachment"),
     thirdPartyQuotesAttachment: readAttachment("thirdPartyQuotesAttachment"),
     linkEvidenceAttachments: rows
@@ -826,6 +884,61 @@ function nrcTotalFromParts(parts: {
     numberOrZero(parts.materialCost) +
     numberOrZero(parts.wayleaveCost)
   );
+}
+
+function calculateNrr(mrr: number, mrc: number) {
+  return mrr - mrc;
+}
+
+function calculatePaybackMonths(tcs: number, monthlyNrr: number) {
+  if (monthlyNrr <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return tcs / monthlyNrr;
+}
+
+function calculateAnnualIrrPercentage(tcs: number, monthlyNrr: number, contractTermMonths: number) {
+  if (monthlyNrr <= 0 || contractTermMonths <= 0) {
+    return 0;
+  }
+
+  if (tcs <= 0) {
+    return 100;
+  }
+
+  const cashFlows = [-tcs, ...Array.from({ length: contractTermMonths }, () => monthlyNrr)];
+  const npv = (rate: number) =>
+    cashFlows.reduce((sum, cashFlow, month) => sum + cashFlow / (1 + rate) ** month, 0);
+  let low = -0.9999;
+  let high = 10;
+  let mid = 0;
+
+  for (let index = 0; index < 1000; index += 1) {
+    mid = (low + high) / 2;
+    const lowNpv = npv(low);
+    const midNpv = npv(mid);
+
+    if (Math.abs(midNpv) < 1e-7) {
+      break;
+    }
+
+    if (lowNpv * midNpv < 0) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return ((1 + mid) ** 12 - 1) * 100;
+}
+
+function formatMetricInput(value: number, decimalPlaces = 2) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  return String(Number(value.toFixed(decimalPlaces)));
 }
 
 function numberOrZero(value?: string) {
@@ -871,6 +984,7 @@ export function PreparedBcForm({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [rows, setRows] = useState<LinkRowState[]>(() => buildInitialLinkRows(project));
+  const [contractTermMonths, setContractTermMonths] = useState(project.contractTermMonths || 12);
   const [activeTab, setActiveTab] = useState<BcFormTab>("details");
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
@@ -896,6 +1010,7 @@ export function PreparedBcForm({
 
     if (restoredDraft) {
       setRows(buildInitialLinkRows(project, restoredDraft));
+      setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
       setActiveTab(restoredDraft.activeTab ?? "details");
     }
 
@@ -914,10 +1029,69 @@ export function PreparedBcForm({
     project.pboqRequest?.costSource === "ACTUAL_SURVEY" && actualSurveyCost > 0;
   const bcInputBudget = usesActualSurveyCost ? actualSurveyCost : pboqBudget;
   const hasExistingPboq = project.documents.some((document) => document.type === "PBOQ");
+  const isFibreReady = isFibreReadyProject(project);
+  const revenueTotals = useMemo(
+    () =>
+      rows.reduce(
+        (totals, row) => ({
+          mrc: totals.mrc + numberOrZero(row.mrc),
+          mrr: totals.mrr + numberOrZero(row.mrr),
+          nrr: totals.nrr + calculateNrr(numberOrZero(row.mrr), numberOrZero(row.mrc)),
+          nrc:
+            totals.nrc +
+            nrcTotalFromParts({
+              newBuildCost: row.newBuildCost,
+              provisioningCost: row.provisioningCost,
+              materialCost: row.materialCost,
+              wayleaveCost: row.wayleaveCost,
+            }),
+        }),
+        { mrc: 0, mrr: 0, nrr: 0, nrc: 0 },
+      ),
+    [rows],
+  );
+  const financialMetrics = useMemo(() => {
+    const paybackMonths = calculatePaybackMonths(revenueTotals.nrc, revenueTotals.nrr);
+    const submittedPaybackMonths = Number.isFinite(paybackMonths)
+      ? Math.max(1, Math.ceil(paybackMonths))
+      : contractTermMonths + 1;
+    const irr = calculateAnnualIrrPercentage(
+      revenueTotals.nrc,
+      revenueTotals.nrr,
+      contractTermMonths,
+    );
+    const decision = deriveDecision({
+      irr,
+      paybackMonths: submittedPaybackMonths,
+      subsidyRequirement: numberOrZero(String(savedDraft?.subsidy ?? project.subsidy ?? 0)),
+      capex: revenueTotals.nrc,
+    });
+    const isAccepted =
+      revenueTotals.nrr > 0 &&
+      submittedPaybackMonths <= contractTermMonths &&
+      decision.decision !== "SEEK FINANCE APPROVAL";
+
+    return {
+      irr,
+      paybackMonths,
+      submittedPaybackMonths,
+      nrv: revenueTotals.nrr * contractTermMonths,
+      tcv: revenueTotals.mrr * contractTermMonths,
+      decision,
+      isAccepted,
+    };
+  }, [
+    contractTermMonths,
+    project.subsidy,
+    revenueTotals.mrr,
+    revenueTotals.nrc,
+    revenueTotals.nrr,
+    savedDraft?.subsidy,
+  ]);
 
   useEffect(() => {
     return bindFormAutoSave(formRef.current);
-  }, [bindFormAutoSave, isReady, activeTab, rows]);
+  }, [bindFormAutoSave, isReady, activeTab, rows, contractTermMonths]);
 
   function addRow() {
     setRows((current) => {
@@ -930,8 +1104,8 @@ export function PreparedBcForm({
           id: Date.now(),
           onnetOffnet: "Onnet",
           service: "DIA",
-          technology: "Fiber",
-          costSource: "PBOQ",
+          technology: isFibreReady ? "Fibre Ready" : "Fiber",
+          costSource: isFibreReady ? "Fibre Ready" : "PBOQ",
           ...revenue,
         },
       ];
@@ -954,6 +1128,23 @@ export function PreparedBcForm({
             }
           : row,
       ),
+    );
+  }
+
+  function updateRowRevenue(id: number, field: "mrc" | "mrr", value: string) {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) {
+          return row;
+        }
+
+        const nextRow = { ...row, [field]: value };
+
+        return {
+          ...nextRow,
+          nrr: String(calculateNrr(numberOrZero(nextRow.mrr), numberOrZero(nextRow.mrc))),
+        };
+      }),
     );
   }
 
@@ -1006,13 +1197,6 @@ export function PreparedBcForm({
                     readOnly
                     required
                   />
-                  <FileUploadField
-                    id="lsoAttachment"
-                    name="lsoAttachment"
-                    required
-                    defaultFileName={savedDraft?.lsoAttachment?.name}
-                  />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">Attachment: LSO</p>
                 </Field>
                 <Field label="Account Number" required>
                   <Input
@@ -1020,20 +1204,15 @@ export function PreparedBcForm({
                     defaultValue={savedDraft?.accountNumber ?? project.accountNumber}
                     required
                   />
-                  <FileUploadField
-                    id="bcTemplate"
-                    name="bcTemplate"
-                    accept=".xlsx,.xls,.csv"
-                    required
-                    defaultFileName={savedDraft?.bcTemplate?.name}
-                  />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: BC template Excel
-                  </p>
+                  
                 </Field>
                 <Field label="Opportunity Number" required>
                   <Input name="opportunityNumber" defaultValue={project.id} readOnly required />
-                  {!hasExistingPboq ? (
+                  {isFibreReady ? (
+                    <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                      Fibre-ready opportunity. No PBOQ is required for BC preparation.
+                    </p>
+                  ) : !hasExistingPboq ? (
                     <>
                       <Select
                         name="pboqOrSurveyType"
@@ -1054,17 +1233,7 @@ export function PreparedBcForm({
                     </p>
                   )}
                 </Field>
-                <Field label="Account Manager" required>
-                  <Input name="accountManagerName" defaultValue={project.owner} readOnly required />
-                  <FileUploadField
-                    id="thirdPartyQuotesAttachment"
-                    name="thirdPartyQuotesAttachment"
-                    defaultFileName={savedDraft?.thirdPartyQuotesAttachment?.name}
-                  />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: 3rd Party Quotes for offnet sites
-                  </p>
-                </Field>
+                
                 <Field label="Solution Architecture" required>
                   <Input
                     name="solutionArchitectureName"
@@ -1084,20 +1253,45 @@ export function PreparedBcForm({
                 <Field label="Contract Term">
                   <Select
                     name="contractTermMonths"
-                    defaultValue={String(
-                      savedDraft?.contractTermMonths ?? (project.contractTermMonths || 12),
-                    )}
+                    value={String(contractTermMonths)}
+                    onChange={(event) => setContractTermMonths(Number(event.currentTarget.value))}
                   >
                     <option value="12">12 months</option>
                     <option value="24">24 months</option>
                     <option value="36">36 months</option>
                   </Select>
                 </Field>
-                <Field label="BC Type">
-                  <Select name="type" defaultValue={savedDraft?.type ?? project.type ?? "Ordinary BC"}>
-                    <option>Ordinary BC</option>
-                    <option>Margin Analysis BC</option>
-                  </Select>
+                <Field label="Attachments">
+                  <FileUploadField
+                    id="lsoAttachment"
+                    name="lsoAttachment"
+                    required
+                    defaultFileName={savedDraft?.lsoAttachment?.name}
+                  />
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">Attachment: LSO</p>
+                
+                  <FileUploadField
+                    id="bcTemplate"
+                    name="bcTemplate"
+                    accept=".xlsx,.xls,.csv"
+                    required
+                    multiple
+                    defaultFileName={bcTemplateFileNames(savedDraft)}
+                  />
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                    Attachment: one or more prepared BC Excel sheets
+                  </p>
+                </Field>
+                <Field label="Account Manager" required>
+                  <Input name="accountManagerName" defaultValue={project.owner} readOnly required />
+                  <FileUploadField
+                    id="thirdPartyQuotesAttachment"
+                    name="thirdPartyQuotesAttachment"
+                    defaultFileName={savedDraft?.thirdPartyQuotesAttachment?.name}
+                  />
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                    Attachment: 3rd Party Quotes for offnet sites
+                  </p>
                 </Field>
                 <Field label="Project Executive Summary" required>
                   <Textarea
@@ -1118,6 +1312,12 @@ export function PreparedBcForm({
                     <CardTitle className="text-sm">BC Links</CardTitle>
                     <p className="mt-1 text-xs text-[color:var(--color-muted)]">
                       One BC can include multiple links.
+                    </p>
+                    <p className="mt-1 text-xs text-[color:var(--color-muted-strong)]">
+                      Totals: MRR {revenueTotals.mrr.toLocaleString("en-US")} · MRC{" "}
+                      {revenueTotals.mrc.toLocaleString("en-US")} · NRR{" "}
+                      {revenueTotals.nrr.toLocaleString("en-US")} · NRC{" "}
+                      {revenueTotals.nrc.toLocaleString("en-US")}
                     </p>
                   </div>
                   <Button type="button" size="sm" variant="secondary" onClick={addRow}>
@@ -1212,6 +1412,7 @@ export function PreparedBcForm({
                               required
                             >
                               <option>PBOQ</option>
+                              <option>Fibre Ready</option>
                               <option>Actual Survey</option>
                               <option>3rd Party Quote</option>
                             </Select>
@@ -1246,7 +1447,10 @@ export function PreparedBcForm({
                               inputMode="decimal"
                               step="0.01"
                               min="0"
-                              defaultValue={row.mrc ?? "0"}
+                              value={row.mrc ?? "0"}
+                              onChange={(event) =>
+                                updateRowRevenue(row.id, "mrc", event.currentTarget.value)
+                              }
                             />
                           </td>
                           <td className="px-2 py-2">
@@ -1256,7 +1460,10 @@ export function PreparedBcForm({
                               inputMode="decimal"
                               step="0.01"
                               min="0"
-                              defaultValue={row.mrr ?? "0"}
+                              value={row.mrr ?? "0"}
+                              onChange={(event) =>
+                                updateRowRevenue(row.id, "mrr", event.currentTarget.value)
+                              }
                               required
                             />
                           </td>
@@ -1266,8 +1473,10 @@ export function PreparedBcForm({
                               type="number"
                               inputMode="decimal"
                               step="0.01"
-                              min="0"
-                              defaultValue={row.nrr ?? "0"}
+                              value={formatMetricInput(
+                                calculateNrr(numberOrZero(row.mrr), numberOrZero(row.mrc)),
+                              )}
+                              readOnly
                             />
                           </td>
                           <td className="px-2 py-2 min-w-[160px]">
@@ -1336,11 +1545,19 @@ export function PreparedBcForm({
                     BC cost input
                   </p>
                   <p className="mt-2 font-medium text-[color:var(--color-primary)]">
-                    {usesActualSurveyCost
+                    {isFibreReady
+                      ? "Fibre ready: no PBOQ required"
+                      : usesActualSurveyCost
                       ? `Actual survey cost: ${actualSurveyCost.toLocaleString("en-US")}`
                       : `PBOQ estimate: ${pboqBudget.toLocaleString("en-US")}`}
                   </p>
                 </div>
+                <Field label="BC Type" required>
+                  <Select name="type" defaultValue={savedDraft?.type ?? project.type ?? "Ordinary BC"} required>
+                    <option>Ordinary BC</option>
+                    <option>Margin Analysis BC</option>
+                  </Select>
+                </Field>
                 <Field label="IRR (%)" required>
                   <div className="relative">
                     <Input
@@ -1351,7 +1568,8 @@ export function PreparedBcForm({
                       min="0"
                       placeholder="0"
                       className="pr-8"
-                      defaultValue={savedDraft?.irr ?? (project.irr > 0 ? project.irr : undefined)}
+                      value={formatMetricInput(financialMetrics.irr)}
+                      readOnly
                       required
                     />
                     <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-[color:var(--color-muted)]">
@@ -1365,7 +1583,8 @@ export function PreparedBcForm({
                     type="number"
                     inputMode="numeric"
                     min="1"
-                    defaultValue={savedDraft?.payback ?? (project.payback > 0 ? project.payback : undefined)}
+                    value={financialMetrics.submittedPaybackMonths}
+                    readOnly
                     required
                   />
                 </Field>
@@ -1376,7 +1595,8 @@ export function PreparedBcForm({
                     inputMode="decimal"
                     min="0"
                     step="0.01"
-                    defaultValue={savedDraft?.capex ?? bcInputBudget}
+                    value={formatMetricInput(revenueTotals.nrc)}
+                    readOnly
                     required
                   />
                 </Field>
@@ -1402,6 +1622,67 @@ export function PreparedBcForm({
                     required
                   />
                 </Field>
+                <Field label="NRV (USD)" required>
+                  <Input
+                    name="nrv"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={formatMetricInput(financialMetrics.nrv)}
+                    readOnly
+                    required
+                  />
+                </Field>
+                <Field label="TCV (USD)" required>
+                  <Input
+                    name="tcv"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={formatMetricInput(financialMetrics.tcv)}
+                    readOnly
+                    required
+                  />
+                </Field>
+                <Field label="Exchange Rate (KES/USD)" required>
+                  <Input
+                    name="exchangeRateKesUsd"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    step="0.01"
+                    defaultValue={(savedDraft?.exchangeRateKesUsd ?? project.exchangeRateKesUsd) || undefined}
+                    required
+                  />
+                </Field>
+                <div
+                  className={`rounded-md border p-4 text-sm md:col-span-3 ${
+                    financialMetrics.isAccepted
+                      ? "border-emerald-200 bg-emerald-50"
+                      : "border-red-200 bg-red-50"
+                  }`}
+                >
+                  <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                    Opportunity decision
+                  </p>
+                  <p className="mt-2 text-lg font-semibold">
+                    {financialMetrics.isAccepted ? "Accepted" : "Rejected"}
+                  </p>
+                  <p className="mt-1 text-[color:var(--color-muted-strong)]">
+                    {financialMetrics.decision.reason}
+                  </p>
+                  <p className="mt-2 text-xs text-[color:var(--color-muted)]">
+                    Payback:{" "}
+                    {Number.isFinite(financialMetrics.paybackMonths)
+                      ? `${formatMetricInput(financialMetrics.paybackMonths)} months`
+                      : "not recoverable"}{" "}
+                    · IRR: {formatMetricInput(financialMetrics.irr)}% · TCV:{" "}
+                    {financialMetrics.tcv.toLocaleString("en-US")} · Total NRR:{" "}
+                    {revenueTotals.nrr.toLocaleString("en-US")}
+                  </p>
+                </div>
               </div>
             </TabsContent>
           </CardContent>

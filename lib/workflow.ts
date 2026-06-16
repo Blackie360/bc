@@ -183,13 +183,25 @@ export const workflowTransitions = [
     from: "Sales Operations Validation",
     to: "SDU Validation",
     owner: "SDU",
-    rule: "Validate project handoff readiness and required delivery documents.",
+    rule: "Validate BC, Order, and technical details before implementation initiation.",
   },
   {
     from: "SDU Validation",
     to: "Survey & Site Acquisition",
     owner: "Site Acquisition Manager",
-    rule: "Complete survey evidence, site acquisition documents, and access dependencies.",
+    rule: "Alignment is confirmed and survey cost is within threshold.",
+  },
+  {
+    from: "SDU Validation",
+    to: "Finance / CFO Approval",
+    owner: "SDU",
+    rule: "Mismatch or oversight is returned to Finance with SDU justification.",
+  },
+  {
+    from: "SDU Validation",
+    to: "Business Case Prepared",
+    owner: "SDU",
+    rule: "Survey cost deviation exceeds threshold and requires a revised BC from the Account Manager.",
   },
   {
     from: "Survey & Site Acquisition",
