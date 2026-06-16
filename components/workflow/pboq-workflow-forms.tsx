@@ -3,6 +3,7 @@
 import { ChevronRight, Plus, Save, Trash2 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
@@ -13,7 +14,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
 import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
 import {
-  lifecycleDraftScopes,
   readFormFieldValue,
   readIndexedFormRows,
   readFileMetadata,
@@ -169,6 +169,10 @@ function FileUploadField({
 
 type Row = { id: number };
 type FiberPlanningRow = Row & FiberPlanningLineDraft;
+type ExistingPboqFile = Pick<
+  ProjectRecord["documents"][number],
+  "id" | "name" | "mimeType" | "sizeBytes"
+>;
 
 type KickoffLinkRow = Row & {
   linkName?: string;
@@ -180,6 +184,71 @@ type KickoffLinkRow = Row & {
 };
 
 const defaultKickoffRegion = kenyaCounties[0];
+const kickoffLinkImportColumns = {
+  linkName: ["linkname", "link", "linkid", "linknumber", "linkno", "sitename"],
+  region: ["region", "county"],
+  siteCoordinates: ["sitecoordinates", "coordinates", "gps", "gpscoordinates", "latlong"],
+  buildingName: ["buildingname", "building", "location", "address"],
+  service: ["service", "servicetype", "product"],
+  capacity: ["capacity", "bandwidth", "speed"],
+} as const;
+
+function normalizeImportHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function cellText(value: unknown) {
+  if (value == null) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function importedService(value: string): KickoffLinkRow["service"] {
+  const normalized = value.trim().toUpperCase();
+
+  if (normalized === "EPL" || normalized === "DIA" || normalized === "DFA") {
+    return normalized;
+  }
+
+  return "EPL";
+}
+
+function importedCell(
+  row: Record<string, unknown>,
+  field: keyof typeof kickoffLinkImportColumns,
+) {
+  const entry = Object.entries(row).find(([header]) =>
+    kickoffLinkImportColumns[field].some(
+      (column) => column === normalizeImportHeader(header),
+    ),
+  );
+
+  return entry ? cellText(entry[1]) : "";
+}
+
+function rowsFromImportedWorksheet(rows: Array<Record<string, unknown>>): KickoffLinkRow[] {
+  return rows
+    .map((row, index) => ({
+      id: Date.now() + index,
+      linkName: importedCell(row, "linkName"),
+      region: importedCell(row, "region") || defaultKickoffRegion,
+      siteCoordinates: importedCell(row, "siteCoordinates"),
+      buildingName: importedCell(row, "buildingName"),
+      service: importedService(importedCell(row, "service")),
+      capacity: importedCell(row, "capacity"),
+    }))
+    .filter((row) =>
+      Boolean(
+        row.linkName ||
+          row.siteCoordinates ||
+          row.buildingName ||
+          row.capacity ||
+          row.region !== defaultKickoffRegion,
+      ),
+    );
+}
 
 export function PboqRequestForm({
   action,
@@ -191,6 +260,8 @@ export function PboqRequestForm({
   const [linkRows, setLinkRows] = useState<KickoffLinkRow[]>([
     { id: 1, region: defaultKickoffRegion, service: "EPL" },
   ]);
+  const [linkImportMessage, setLinkImportMessage] = useState<string | null>(null);
+  const [linkImportError, setLinkImportError] = useState<string | null>(null);
   const isFibreReady = technology === "Fibre Ready";
 
   function addLinkRow() {
@@ -208,6 +279,41 @@ export function PboqRequestForm({
     setLinkRows((current) =>
       current.length === 1 ? current : current.filter((row) => row.id !== id),
     );
+  }
+
+  async function importLinkRows(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setLinkImportError(null);
+    setLinkImportMessage(null);
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        throw new Error("The uploaded spreadsheet does not contain any sheets.");
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const importedRows = rowsFromImportedWorksheet(
+        XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" }),
+      );
+
+      if (importedRows.length === 0) {
+        throw new Error("No link rows were found. Check the column headers and try again.");
+      }
+
+      setLinkRows(importedRows);
+      setLinkImportMessage(`Imported ${importedRows.length} link${importedRows.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The spreadsheet could not be imported.";
+      setLinkImportError(message);
+    }
   }
 
   return (
@@ -297,12 +403,34 @@ export function PboqRequestForm({
               Add one link for a single-site deal, or multiple links when the opportunity spans several connections.
             </p>
           </div>
-          <Button type="button" size="sm" variant="secondary" onClick={addLinkRow}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Link
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex h-7 cursor-pointer items-center rounded-md border border-[color:var(--color-border)] bg-white px-3 text-xs font-medium text-[color:var(--color-muted-strong)] hover:border-[color:var(--color-primary)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)]">
+              Import Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={importLinkRows}
+                className="sr-only"
+              />
+            </label>
+            <Button type="button" size="sm" variant="secondary" onClick={addLinkRow}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Link
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-4">
+          <div className="mb-3 space-y-1 text-xs">
+            <p className="text-[color:var(--color-muted)]">
+              Spreadsheet columns: Link Name, Region, Site Coordinates, Building Name, Service, Capacity.
+            </p>
+            {linkImportMessage ? (
+              <p className="text-[color:var(--color-success-text)]">{linkImportMessage}</p>
+            ) : null}
+            {linkImportError ? (
+              <p className="text-[color:var(--color-danger-text)]">{linkImportError}</p>
+            ) : null}
+          </div>
           <div className="overflow-x-auto">
             <datalist id="kenya-counties">
               {kenyaCounties.map((county) => (
@@ -384,7 +512,7 @@ export function PboqRequestForm({
                       <Input
                         name={`kickoffLinks[${index}][capacity]`}
                         defaultValue={row.capacity}
-                        placeholder="e.g. 1 Gbps"
+                        placeholder="e.g. 1 Mbps"
                         required
                       />
                     </td>
@@ -452,12 +580,14 @@ export function FiberPlanningForm({
   action,
   projectId,
   initialCostLines = [],
+  initialPboqFiles = [],
   kickoffLinkCount = 0,
   planningLabel = "Fiber Planning",
 }: {
   action: (formData: FormData) => void | Promise<void>;
   projectId: string;
   initialCostLines?: PboqCostLineRecord[];
+  initialPboqFiles?: Array<ExistingPboqFile | undefined>;
   kickoffLinkCount?: number;
   planningLabel?: string;
 }) {
@@ -511,13 +641,25 @@ export function FiberPlanningForm({
       return;
     }
 
-    if (restoredDraft?.lines?.length) {
-      setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
-    } else if (initialCostLines.length > 0) {
-      setRows(buildFiberPlanningRowsFromCostLines(initialCostLines));
-    }
+    let isCancelled = false;
 
-    setHasRestoredDraft(true);
+    queueMicrotask(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      if (restoredDraft?.lines?.length) {
+        setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
+      } else if (initialCostLines.length > 0) {
+        setRows(buildFiberPlanningRowsFromCostLines(initialCostLines));
+      }
+
+      setHasRestoredDraft(true);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [initialCostLines, isReady, restoredDraft]);
 
   useEffect(() => {
@@ -587,13 +729,17 @@ export function FiberPlanningForm({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[color:var(--color-border)]">
-                {rows.map((row, index) => (
+                {rows.map((row, index) => {
+                  const existingPboqFile = initialPboqFiles[index];
+                  const defaultPboqFileName =
+                    restoredDraft?.lines?.[index]?.pboqFile?.name ?? existingPboqFile?.name;
+
+                  return (
                   <tr key={row.id}>
                     <td className="px-2 py-2">
                       <Input
                         name={`pboqLines[${index}][linkName]`}
                         defaultValue={row.linkName}
-                        readOnly={isMultiLinkKickoff}
                         required
                       />
                     </td>
@@ -634,9 +780,33 @@ export function FiberPlanningForm({
                       <FileUploadField
                         id={`pboqFile-${row.id}`}
                         name={`pboqLines[${index}][pboqFile]`}
-                        required
-                        defaultFileName={restoredDraft?.lines?.[index]?.pboqFile?.name}
+                        required={!existingPboqFile}
+                        defaultFileName={defaultPboqFileName}
                       />
+                      {existingPboqFile ? (
+                        <>
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqDocumentId]`}
+                            value={existingPboqFile.id}
+                          />
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqFileName]`}
+                            value={existingPboqFile.name}
+                          />
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqMimeType]`}
+                            value={existingPboqFile.mimeType}
+                          />
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqSizeBytes]`}
+                            value={existingPboqFile.sizeBytes}
+                          />
+                        </>
+                      ) : null}
                     </td>
                     <td className="px-2 py-2">
                       <Input name={`pboqLines[${index}][notes]`} defaultValue={row.notes} />
@@ -649,7 +819,8 @@ export function FiberPlanningForm({
                       ) : null}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -702,17 +873,13 @@ function isFibreReadyProject(project: ProjectRecord) {
 }
 
 function defaultRevenueForNewRow(project: ProjectRecord, linkCount: number) {
-  const mrr = linkCount === 1 ? String(project.opportunityMrr) : "0";
+  const mrr = linkCount > 0 ? formatMetricInput(project.opportunityMrr / linkCount) : "0";
   const mrc = "0";
-
-  if (linkCount !== 1) {
-    return { mrc, mrr, nrr: "0" };
-  }
 
   return {
     mrc,
     mrr,
-    nrr: String(calculateNrr(project.opportunityMrr, 0)),
+    nrr: formatMetricInput(calculateNrr(numberOrZero(mrr), 0)),
   };
 }
 
@@ -726,6 +893,9 @@ function mapDraftLinkToRow(
   link: NonNullable<PreparedBcDraft["links"]>[number],
   index: number,
 ): LinkRowState {
+  const mrc = link.mrc && link.mrc.length > 0 ? link.mrc : "0";
+  const mrr = link.mrr && link.mrr.length > 0 ? link.mrr : "0";
+
   return {
     id: index + 1,
     linkName: link.linkName,
@@ -739,9 +909,9 @@ function mapDraftLinkToRow(
     provisioningCost: link.provisioningCost,
     materialCost: link.materialCost,
     wayleaveCost: link.wayleaveCost,
-    mrc: link.mrc,
-    mrr: link.mrr,
-    nrr: String(calculateNrr(numberOrZero(link.mrr), numberOrZero(link.mrc))),
+    mrc,
+    mrr,
+    nrr: formatMetricInput(calculateNrr(numberOrZero(mrr), numberOrZero(mrc))),
   };
 }
 
@@ -941,6 +1111,14 @@ function formatMetricInput(value: number, decimalPlaces = 2) {
   return String(Number(value.toFixed(decimalPlaces)));
 }
 
+function formatMetricDisplay(value: number, decimalPlaces = 2) {
+  if (!Number.isFinite(value)) {
+    return "Not recoverable";
+  }
+
+  return Number(value.toFixed(decimalPlaces)).toLocaleString("en-US");
+}
+
 function numberOrZero(value?: string) {
   if (!value) return 0;
   const parsed = Number(value);
@@ -985,6 +1163,9 @@ export function PreparedBcForm({
   const formRef = useRef<HTMLFormElement>(null);
   const [rows, setRows] = useState<LinkRowState[]>(() => buildInitialLinkRows(project));
   const [contractTermMonths, setContractTermMonths] = useState(project.contractTermMonths || 12);
+  const [subsidyRequirement, setSubsidyRequirement] = useState(
+    String(project.subsidy ?? 0),
+  );
   const [activeTab, setActiveTab] = useState<BcFormTab>("details");
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
@@ -1008,13 +1189,26 @@ export function PreparedBcForm({
       return;
     }
 
-    if (restoredDraft) {
-      setRows(buildInitialLinkRows(project, restoredDraft));
-      setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
-      setActiveTab(restoredDraft.activeTab ?? "details");
-    }
+    let isCancelled = false;
 
-    setHasRestoredDraft(true);
+    queueMicrotask(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      if (restoredDraft) {
+        setRows(buildInitialLinkRows(project, restoredDraft));
+        setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
+        setSubsidyRequirement(String(restoredDraft.subsidy ?? project.subsidy ?? 0));
+        setActiveTab(restoredDraft.activeTab ?? "details");
+      }
+
+      setHasRestoredDraft(true);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [project, restoredDraft, isReady]);
   const pboqBudget = useMemo(
     () =>
@@ -1063,7 +1257,7 @@ export function PreparedBcForm({
     const decision = deriveDecision({
       irr,
       paybackMonths: submittedPaybackMonths,
-      subsidyRequirement: numberOrZero(String(savedDraft?.subsidy ?? project.subsidy ?? 0)),
+      subsidyRequirement: numberOrZero(subsidyRequirement),
       capex: revenueTotals.nrc,
     });
     const isAccepted =
@@ -1082,16 +1276,15 @@ export function PreparedBcForm({
     };
   }, [
     contractTermMonths,
-    project.subsidy,
     revenueTotals.mrr,
     revenueTotals.nrc,
     revenueTotals.nrr,
-    savedDraft?.subsidy,
+    subsidyRequirement,
   ]);
 
   useEffect(() => {
     return bindFormAutoSave(formRef.current);
-  }, [bindFormAutoSave, isReady, activeTab, rows, contractTermMonths]);
+  }, [bindFormAutoSave, isReady, activeTab, rows, contractTermMonths, subsidyRequirement]);
 
   function addRow() {
     setRows((current) => {
@@ -1261,15 +1454,18 @@ export function PreparedBcForm({
                     <option value="36">36 months</option>
                   </Select>
                 </Field>
-                <Field label="Attachments">
+                <Field label="">
+                <p className="text-xs font-normal text-[color:var(--color-muted)]">Attachment: LSO</p>
                   <FileUploadField
                     id="lsoAttachment"
                     name="lsoAttachment"
                     required
                     defaultFileName={savedDraft?.lsoAttachment?.name}
                   />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">Attachment: LSO</p>
-                
+                  
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                    Attachment: one or more prepared BC Excel sheets
+                  </p>
                   <FileUploadField
                     id="bcTemplate"
                     name="bcTemplate"
@@ -1278,20 +1474,19 @@ export function PreparedBcForm({
                     multiple
                     defaultFileName={bcTemplateFileNames(savedDraft)}
                   />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: one or more prepared BC Excel sheets
-                  </p>
+                  
                 </Field>
                 <Field label="Account Manager" required>
                   <Input name="accountManagerName" defaultValue={project.owner} readOnly required />
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                    Attachment: 3rd Party Quotes for offnet sites
+                  </p>
                   <FileUploadField
                     id="thirdPartyQuotesAttachment"
                     name="thirdPartyQuotesAttachment"
                     defaultFileName={savedDraft?.thirdPartyQuotesAttachment?.name}
                   />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: 3rd Party Quotes for offnet sites
-                  </p>
+                  
                 </Field>
                 <Field label="Project Executive Summary" required>
                   <Textarea
@@ -1552,6 +1747,31 @@ export function PreparedBcForm({
                       : `PBOQ estimate: ${pboqBudget.toLocaleString("en-US")}`}
                   </p>
                 </div>
+                <div className="grid gap-3 md:col-span-3 md:grid-cols-4">
+                  {[
+                    { label: "Total MRR", value: revenueTotals.mrr },
+                    { label: "Total MRC", value: revenueTotals.mrc },
+                    { label: "Total NRR", value: revenueTotals.nrr },
+                    { label: "TCS / NRC", value: revenueTotals.nrc },
+                    { label: "Payback", value: financialMetrics.paybackMonths, suffix: " months" },
+                    { label: "IRR", value: financialMetrics.irr, suffix: "%" },
+                    { label: "NRV", value: financialMetrics.nrv },
+                    { label: "TCV", value: financialMetrics.tcv },
+                  ].map(({ label, value, suffix }) => (
+                    <div
+                      key={label}
+                      className="rounded-md border border-[color:var(--color-border)] bg-white p-3"
+                    >
+                      <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                        {label}
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-[color:var(--color-primary)]">
+                        {formatMetricDisplay(value)}
+                        {Number.isFinite(value) ? suffix : null}
+                      </p>
+                    </div>
+                  ))}
+                </div>
                 <Field label="BC Type" required>
                   <Select name="type" defaultValue={savedDraft?.type ?? project.type ?? "Ordinary BC"} required>
                     <option>Ordinary BC</option>
@@ -1607,7 +1827,8 @@ export function PreparedBcForm({
                     inputMode="decimal"
                     min="0"
                     step="0.01"
-                    defaultValue={savedDraft?.subsidy ?? project.subsidy ?? 0}
+                    value={subsidyRequirement}
+                    onChange={(event) => setSubsidyRequirement(event.currentTarget.value)}
                     required
                   />
                 </Field>
@@ -1627,7 +1848,6 @@ export function PreparedBcForm({
                     name="nrv"
                     type="number"
                     inputMode="decimal"
-                    min="0"
                     step="0.01"
                     value={formatMetricInput(financialMetrics.nrv)}
                     readOnly
@@ -1668,7 +1888,7 @@ export function PreparedBcForm({
                     Opportunity decision
                   </p>
                   <p className="mt-2 text-lg font-semibold">
-                    {financialMetrics.isAccepted ? "Accepted" : "Rejected"}
+                    {financialMetrics.isAccepted ? "Done" : "Pending"}
                   </p>
                   <p className="mt-1 text-[color:var(--color-muted-strong)]">
                     {financialMetrics.decision.reason}

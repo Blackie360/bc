@@ -31,6 +31,7 @@ import {
   hasPboqDocumentAttachment,
   isAccountManagerBcPreparationStage,
   isFibreReadyOpportunity,
+  projectDecisionStatus,
 } from "@/lib/projects";
 import { roleRoutes } from "@/lib/workflow";
 
@@ -95,6 +96,14 @@ export default async function ProjectDetailPage({
     ? project.documents.find((document) => document.id === project.certificate?.documentId)
     : null;
   const certificateHref = `/projects/${encodeURIComponent(project.id)}/certificate`;
+  const pboqDocuments = project.documents.filter((document) => document.type === "PBOQ");
+  const planningPboqFiles =
+    project.pboqRequest?.costLines.map(
+      (line, index) =>
+        project.documents.find((document) => document.id === line.pboqDocumentId) ??
+        pboqDocuments[index],
+    ) ?? [];
+  const decisionStatus = projectDecisionStatus(project);
 
   return (
     <AdminShell
@@ -159,7 +168,9 @@ export default async function ProjectDetailPage({
           <Card>
             <CardContent className="p-4">
               <p className="text-[11px] font-medium uppercase tracking-wide text-[color:var(--color-muted)]">Decision</p>
-              <Badge className="mt-1" variant="info">{project.decision}</Badge>
+              <Badge className="mt-1" variant={decisionStatus === "Done" ? "success" : "info"}>
+                {decisionStatus}
+              </Badge>
             </CardContent>
           </Card>
           <Card>
@@ -320,6 +331,7 @@ export default async function ProjectDetailPage({
               action={fiberPlanningAction}
               projectId={project.id}
               initialCostLines={project.pboqRequest?.costLines ?? []}
+              initialPboqFiles={planningPboqFiles}
               kickoffLinkCount={project.pboqRequest?.costLines.length ?? 0}
               planningLabel={planningLabel}
             />

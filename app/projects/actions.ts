@@ -93,7 +93,8 @@ export async function completeFiberPlanningAction(id: string, formData: FormData
     isPlanningRole &&
     (existingProject.state === "PBOQ Request Submitted" ||
       existingProject.state === "Fiber Planning Generates Costs" ||
-      existingProject.state === "Wireless Planning Generates Costs");
+      existingProject.state === "Wireless Planning Generates Costs" ||
+      existingProject.state === "Business Case Prepared");
   if (!existingProject || !isPlanningStage) {
     throw new Error("Planning submission is only allowed for planning queue projects.");
   }
@@ -462,12 +463,9 @@ function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
     kickoffLinkCountRaw.length > 0 ? Number(kickoffLinkCountRaw) : undefined;
   const lines = parsePboqCostLines(formData).map((line, index) => ({
     ...line,
-    pboqFile: fileAttachment(
-      formData,
-      `pboqLines[${index}][pboqFile]`,
-      "PBOQ",
-      `PBOQ file for ${line.linkName} is required.`,
-    ),
+    pboqFile:
+      optionalFileAttachment(formData, `pboqLines[${index}][pboqFile]`, "PBOQ") ??
+      existingPboqAttachment(formData, index, line.linkName),
   }));
 
   return {
@@ -477,6 +475,27 @@ function parseFiberPlanningForm(formData: FormData): FiberPlanningInput {
       kickoffLinkCount != null && Number.isFinite(kickoffLinkCount) && kickoffLinkCount > 0
         ? kickoffLinkCount
         : undefined,
+  };
+}
+
+function existingPboqAttachment(formData: FormData, index: number, linkName: string) {
+  const name = textField(formData, `pboqLines[${index}][existingPboqFileName]`);
+  const documentId = textField(formData, `pboqLines[${index}][existingPboqDocumentId]`);
+  const mimeType =
+    textField(formData, `pboqLines[${index}][existingPboqMimeType]`) ||
+    "application/octet-stream";
+  const sizeBytes = numberOrZero(textField(formData, `pboqLines[${index}][existingPboqSizeBytes]`));
+
+  if (!name || !documentId || sizeBytes <= 0) {
+    throw new Error(`PBOQ file for ${linkName} is required.`);
+  }
+
+  return {
+    type: "PBOQ" as const,
+    name,
+    mimeType,
+    sizeBytes,
+    storageKey: `existing-document:${documentId}`,
   };
 }
 

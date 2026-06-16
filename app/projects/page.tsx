@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleChip } from "@/components/workflow/role-chip";
-import { canEditProject, listProjectsForPage } from "@/lib/projects";
+import { canEditProject, listProjectsForPage, projectDecisionStatus } from "@/lib/projects";
 import { getCurrentUserEmail } from "@/lib/current-user";
 import { getAssignedRoleForEmail } from "@/lib/role-assignments";
 import { getRoleRoute, roleRoutes } from "@/lib/workflow";
@@ -135,7 +135,10 @@ export default async function ProjectsPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
-                  {visibleProjects.map((project) => (
+                  {visibleProjects.map((project) => {
+                    const decisionStatus = projectDecisionStatus(project);
+
+                    return (
                     // Planning projects are updated via the Planning form, not generic edit.
                     <tr key={project.id} className="hover:bg-[color:var(--color-primary-soft)]">
                       <td className="px-4 py-4">
@@ -153,7 +156,9 @@ export default async function ProjectsPage({
                         ) : null}
                       </td>
                       <td className="px-4 py-4">
-                        <Badge variant="info">{project.decision}</Badge>
+                        <Badge variant={decisionStatus === "Done" ? "success" : "info"}>
+                          {decisionStatus}
+                        </Badge>
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
                         <p>{new Intl.NumberFormat("en-US").format(project.approvedBudget)}</p>
@@ -187,7 +192,8 @@ export default async function ProjectsPage({
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {visibleProjects.length === 0 ? (
                     <tr>
                       <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={8}>

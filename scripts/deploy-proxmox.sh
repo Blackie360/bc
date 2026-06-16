@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
  
 
-# Deploy NOC Allocation inside a Debian/Ubuntu Proxmox LXC container.
+# Deploy BC inside a Debian/Ubuntu Proxmox LXC container.
 
 # Run inside the container as root or with sudo:
 
@@ -16,7 +16,7 @@ APP_NAME="${APP_NAME:-BC}"
 
 PM2_NAME="${PM2_NAME:-BC}"
 
-REPO_URL="${REPO_URL:-git@github.com:Blackie360/noc_allocation.git}"
+REPO_URL="${REPO_URL:-git@github.com:Angelasoila/bc.git}"
 
 BRANCH="${BRANCH:-}"
 
@@ -24,7 +24,7 @@ APP_DIR="${APP_DIR:-${HOME}/craft/BC}"
 
 INTERNAL_PORT="${INTERNAL_PORT:-3000}"
 
-NGINX_PORT="${NGINX_PORT:-300}"
+NGINX_PORT="${NGINX_PORT:-80}"
 
 ENABLE_NGINX="${ENABLE_NGINX:-true}"
 
@@ -34,7 +34,7 @@ PACKAGE_MANAGER="${PACKAGE_MANAGER:-pnpm}"
 
 PNPM_HOME="${PNPM_HOME:-${HOME}/.local/share/pnpm}"
 
-PUBLIC_HOST="${PUBLIC_HOST:-10.169.81.160}"
+PUBLIC_HOST="${PUBLIC_HOST:-10.169.81.153}"
 
 export PNPM_HOME
 

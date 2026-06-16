@@ -17,6 +17,7 @@ export type PboqCostLineRecord = {
   material: number;
   build: number;
   wayleave: number;
+  pboqDocumentId?: string | null;
   notes: string | null;
 };
 

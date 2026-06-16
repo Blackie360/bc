@@ -139,7 +139,7 @@ export const bcSubmissionInputSchema = z.object({
   capex: z.coerce.number().nonnegative(),
   subsidy: z.coerce.number().nonnegative(),
   approvedBudget: z.coerce.number().nonnegative(),
-  nrv: z.coerce.number().nonnegative(),
+  nrv: z.coerce.number(),
   tcv: z.coerce.number().nonnegative(),
   exchangeRateKesUsd: z.coerce.number().positive(),
   links: z.array(bcLinkInputSchema).min(1),
@@ -403,6 +403,7 @@ export function mapKickoffLinksToCostLineRecords(
     material: 0,
     build: 0,
     wayleave: 0,
+    pboqDocumentId: null,
     notes: encodeKickoffLinkNotes({
       region: link.region,
       service: link.service,
@@ -470,6 +471,10 @@ export function canEditProject(project: ProjectRecord) {
   }
 
   return true;
+}
+
+export function projectDecisionStatus(project: Pick<ProjectRecord, "decision">) {
+  return project.decision === "PENDING" ? "Pending" : "Done";
 }
 
 export function hasPboqDocumentAttachment(project: ProjectRecord) {
@@ -1008,7 +1013,8 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       if (
         project.state !== "PBOQ Request Submitted" &&
         project.state !== "Fiber Planning Generates Costs" &&
-        project.state !== "Wireless Planning Generates Costs"
+        project.state !== "Wireless Planning Generates Costs" &&
+        project.state !== "Business Case Prepared"
       ) {
         throw new Error("Project is not in a planning stage.");
       }
@@ -1018,26 +1024,43 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       assertFiberPlanningLineCount(kickoffLinkCount, validated.lines.length);
 
       const now = new Date().toISOString();
-      const costLines = validated.lines.map((line) => ({
-        id: createId(),
+      const newDocuments: ProjectDocumentRecord[] = [];
+      const pboqDocumentsByLine = validated.lines.map((line) => {
+        const existingDocumentId = line.pboqFile.storageKey.startsWith("existing-document:")
+          ? line.pboqFile.storageKey.replace("existing-document:", "")
+          : null;
+        const existingDocument = existingDocumentId
+          ? project.documents.find((document) => document.id === existingDocumentId)
+          : undefined;
+
+        if (existingDocument) {
+          return existingDocument;
+        }
+
+        const document = localDocument(line.pboqFile, now);
+        newDocuments.push(document);
+        return document;
+      });
+      const costLines = validated.lines.map((line, index) => ({
+        id: project.pboqRequest?.costLines[index]?.id ?? createId(),
         linkName: line.linkName,
         material: line.material,
         build: line.build,
         wayleave: line.wayleave,
+        pboqDocumentId: pboqDocumentsByLine[index]?.id ?? null,
         notes: line.notes || null,
       }));
       const totalCost = costLines.reduce(
         (total, line) => total + line.material + line.build + line.wayleave,
         0,
       );
-      const documents = validated.lines.map((line) => localDocument(line.pboqFile, now));
 
       updatedProject = {
         ...project,
         state: "Business Case Prepared",
         roleQueue: "Account Manager",
-        capex: Math.max(project.capex, totalCost),
-        approvedBudget: Math.max(project.approvedBudget, totalCost),
+        capex: totalCost,
+        approvedBudget: totalCost,
         pboqRequest: {
           ...project.pboqRequest,
           surveyBudget: totalCost,
@@ -1045,7 +1068,7 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
           completedAt: now,
           costLines,
         },
-        documents: [...documents, ...project.documents],
+        documents: [...newDocuments, ...project.documents],
         updatedAt: now,
       };
 
