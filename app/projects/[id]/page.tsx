@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getCurrentUserRole } from "@/lib/current-user";
 import { parseKickoffLinkNotes } from "@/lib/pboq-kickoff-links";
 import {
   SURVEY_COST_DEVIATION_THRESHOLD_PERCENT,
@@ -31,9 +32,10 @@ import {
   hasPboqDocumentAttachment,
   isAccountManagerBcPreparationStage,
   isFibreReadyOpportunity,
+  planningRoleForProject,
   projectDecisionStatus,
 } from "@/lib/projects";
-import { roleRoutes } from "@/lib/workflow";
+import { roleRoutes, type Role } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +68,12 @@ export default async function ProjectDetailPage({
     return notFound();
   }
 
+  const currentRole = await getCurrentUserRole();
+  const projectPlanningRole = planningRoleForProject(project);
+  const isRetainedPlanningProject =
+    projectPlanningRole != null &&
+    currentRole === projectPlanningRole &&
+    Boolean(project.pboqRequest?.completedAt);
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
   const fiberPlanningAction = completeFiberPlanningAction.bind(null, project.id);
   const salesOperationsConfirmAction = confirmSalesOperationsOrderAction.bind(null, project.id);
@@ -81,15 +89,21 @@ export default async function ProjectDetailPage({
   const isSDUStage = project.state === "SDU Validation" && project.roleQueue === "SDU";
   const isPlanningStage =
     project.roleQueue === "Fiber Planning Team" ||
-    project.roleQueue === "Wireless Planning Team";
+    project.roleQueue === "Wireless Planning Team" ||
+    isRetainedPlanningProject;
   const planningLabel =
-    project.roleQueue === "Wireless Planning Team" ? "Wireless Planning" : "Fiber Planning";
+    (projectPlanningRole ?? project.roleQueue) === "Wireless Planning Team"
+      ? "Wireless Planning"
+      : "Fiber Planning";
   const showEditProject = canEditProject(project);
-  const isAccountManagerBcStage = isAccountManagerBcPreparationStage(project);
+  const isAccountManagerBcStage =
+    !isRetainedPlanningProject && isAccountManagerBcPreparationStage(project);
   const isFibreReady = isFibreReadyOpportunity(project);
   const showPboqRequestSummary =
     !isPlanningStage && !hasPboqDocumentAttachment(project);
-  const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
+  const shellRole: Role =
+    isRetainedPlanningProject && projectPlanningRole ? projectPlanningRole : project.roleQueue;
+  const roleRoute = roleRoutes.find((route) => route.role === shellRole);
   const dashboardHref = roleRoute?.href ?? "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
   const certificateDocument = project.certificate
@@ -110,7 +124,7 @@ export default async function ProjectDetailPage({
       code="PRJ"
       title={project.customer}
       subtitle={project.id}
-      badgeLabel={project.roleQueue}
+      badgeLabel={shellRole}
       primaryActive="projects"
       workflowLinks={[]}
       showWorkflowLinks={false}
@@ -298,6 +312,11 @@ export default async function ProjectDetailPage({
                               {kickoff.region ? (
                                 <Badge>{kickoff.region}</Badge>
                               ) : null}
+                              {line.siteCoordinates ?? kickoff.siteCoordinates ? (
+                                <span className="font-mono text-xs text-[color:var(--color-muted)]">
+                                  {line.siteCoordinates ?? kickoff.siteCoordinates}
+                                </span>
+                              ) : null}
                               {kickoff.service ? (
                                 <Badge>{kickoff.service}</Badge>
                               ) : null}
@@ -376,12 +395,22 @@ export default async function ProjectDetailPage({
                 action={financeAction}
                 description="Escalations move to the CFO queue for executive review."
                 decision="escalate-cfo"
-                label="Escalate"
+                label="Escalate to CFO"
                 notesLabel="Escalation reason"
                 notesPlaceholder="Explain why CFO escalation is needed."
                 variant="warning"
                 projectId={project.id}
               />
+              {/* <FinanceDecisionForm
+              action={financeAction}
+              description="Escalate to CEO for executive judgement."
+              decision="escalate-ceo"
+              label="Escalate to CEO"
+              notesLabel="Escalation reason"
+              notesPlaceholder="Explain why CEO escalation is needed."
+              variant="warning"
+              projectId={project.id}
+              /> */}
               <FinanceDecisionForm
                 action={financeAction}
                 description="Redirect with a question to Solutions Architecture."

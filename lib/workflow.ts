@@ -153,7 +153,13 @@ export const workflowTransitions = [
     from: "Approval Routing Engine",
     to: "Finance / CFO Approval",
     owner: "CFO",
-    rule: "Route to Finance or CFO when capex, subsidy, IRR, or payback thresholds require approval.",
+    rule: "Route subsidy cases of USD 3,000 or more to Finance or CFO when approval thresholds require review.",
+  },
+  {
+    from: "Approval Routing Engine",
+    to: "Sales Operations Validation",
+    owner: "Sales Operations",
+    rule: "Route subsidy cases below USD 3,000 directly to Sales Operations for certificate and approval trail validation.",
   },
   {
     from: "Finance / CFO Approval",

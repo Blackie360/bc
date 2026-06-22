@@ -32,6 +32,8 @@ const attachmentMetadataListSchema = z.array(attachmentMetadataSchema);
 export const pboqKickoffLinkDraftSchema = z.object({
   linkName: z.string().optional(),
   region: z.string().optional(),
+  siteCoordinates: z.string().optional(),
+  buildingName: z.string().optional(),
   service: z.enum(["EPL", "DIA", "DFA"]).optional(),
   capacity: z.string().optional(),
 });
@@ -55,6 +57,7 @@ export const pboqRequestDraftSchema = z.object({
 
 export const fiberPlanningLineDraftSchema = z.object({
   linkName: z.string().optional(),
+  siteCoordinates: z.string().optional(),
   material: z.string().optional(),
   build: z.string().optional(),
   wayleave: z.string().optional(),

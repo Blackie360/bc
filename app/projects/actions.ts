@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { normalizeCapacityMbpsInput } from "@/lib/capacity";
 import { getCurrentUserDisplayName, getCurrentUserRole } from "@/lib/current-user";
 import {
   createBcDraft,
@@ -34,6 +35,7 @@ import {
   type SduSurveyCostInput,
   projectInputSchema,
   canEditProject,
+  planningRoleForProject,
   updateProject,
 } from "@/lib/projects";
 import { roleSlug, type Role } from "@/lib/workflow";
@@ -86,19 +88,36 @@ export async function createPboqRequestAction(formData: FormData) {
 
 export async function completeFiberPlanningAction(id: string, formData: FormData) {
   const existingProject = await getProject(id);
+
+  if (!existingProject) {
+    throw new Error("Planning submission is only allowed for planning queue projects.");
+  }
+
+  const currentRole = await getCurrentUserRole();
+  const projectPlanningRole = planningRoleForProject(existingProject);
   const isPlanningRole =
-    existingProject?.roleQueue === "Fiber Planning Team" ||
-    existingProject?.roleQueue === "Wireless Planning Team";
+    existingProject.roleQueue === "Fiber Planning Team" ||
+    existingProject.roleQueue === "Wireless Planning Team" ||
+    currentRole === projectPlanningRole;
   const isPlanningStage =
     isPlanningRole &&
     (existingProject.state === "PBOQ Request Submitted" ||
       existingProject.state === "Fiber Planning Generates Costs" ||
       existingProject.state === "Wireless Planning Generates Costs" ||
       existingProject.state === "Business Case Prepared");
-  if (!existingProject || !isPlanningStage) {
+
+  if (!isPlanningStage) {
     throw new Error("Planning submission is only allowed for planning queue projects.");
   }
-  const planningRole = existingProject.roleQueue;
+  const planningRole =
+    existingProject.roleQueue === "Fiber Planning Team" ||
+    existingProject.roleQueue === "Wireless Planning Team"
+      ? existingProject.roleQueue
+      : projectPlanningRole;
+
+  if (!planningRole) {
+    throw new Error("Planning role could not be determined for this project.");
+  }
 
   let planningInput: FiberPlanningInput;
   try {
@@ -271,6 +290,7 @@ function parseFinanceDecisionForm(formData: FormData): FinanceDecisionInput {
     value === "approve" ||
     value === "reject" ||
     value === "escalate-cfo" ||
+    // value === "escalate-ceo" ||
     value === "question-architect"
   ) {
     return {
@@ -330,7 +350,14 @@ const linkFieldNames = [
 
 type LinkFieldName = (typeof linkFieldNames)[number];
 type RawLinkRow = Partial<Record<LinkFieldName, string>>;
-const pboqCostLineFieldNames = ["linkName", "material", "build", "wayleave", "notes"] as const;
+const pboqCostLineFieldNames = [
+  "linkName",
+  "siteCoordinates",
+  "material",
+  "build",
+  "wayleave",
+  "notes",
+] as const;
 type PboqCostLineFieldName = (typeof pboqCostLineFieldNames)[number];
 type RawPboqCostLineRow = Partial<Record<PboqCostLineFieldName, string>>;
 const pboqKickoffLinkFieldNames = [
@@ -380,9 +407,9 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
       throw new Error(`Link ${index + 1} requires a building name.`);
     }
 
-    const capacity = link.capacity?.trim() ?? "";
+    const capacity = normalizeCapacityMbpsInput(link.capacity);
     if (!capacity) {
-      throw new Error(`Link ${index + 1} requires a capacity.`);
+      throw new Error(`Link ${index + 1} requires a valid Mbps capacity.`);
     }
 
     const service = link.service as PboqRequestInput["links"][number]["service"] | undefined;
@@ -393,6 +420,8 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
     return {
       linkName,
       region,
+      siteCoordinates,
+      buildingName,
       service,
       capacity,
     };
@@ -567,6 +596,7 @@ function parsePboqCostLines(
     .filter(([, row]) => Object.values(row).some((value) => value && value.length > 0))
     .map(([index, row]) => ({
       linkName: row.linkName ?? `PBOQ link ${index + 1}`,
+      siteCoordinates: row.siteCoordinates ?? "",
       material: numberOrZero(row.material),
       build: numberOrZero(row.build),
       wayleave: numberOrZero(row.wayleave),
@@ -709,8 +739,8 @@ function parseLinks(
         nrr: numberOrZero(row.nrr),
         nrv: numberOrZero(row.nrv),
         tcv: numberOrZero(row.tcv),
-        onnetCapacity: row.onnetCapacity ?? "",
-        offnetCapacity: row.offnetCapacity ?? "",
+        onnetCapacity: normalizeCapacityMbpsInput(row.onnetCapacity) ?? "",
+        offnetCapacity: normalizeCapacityMbpsInput(row.offnetCapacity) ?? "",
       };
 
       if (allowPartialRows) {

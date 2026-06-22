@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { LdapDirectoryUser } from "@/lib/auth/ldap";
+import { projectBelongsToRole } from "@/lib/projects";
 import type { RoleAssignment } from "@/lib/role-assignments";
 import {
   roleRoutes,
@@ -504,7 +505,7 @@ export function RoleRoutePage({
 }) {
   const canCreateProject = role === "Account Manager";
   const route = roleRoutes.find((item) => item.role === role);
-  const queuedCases = projects.filter((item) => item.roleQueue === role);
+  const queuedCases = projects.filter((item) => projectBelongsToRole(item, role));
   const readyCount = queuedCases.filter((item) => item.revisions <= 1).length;
   const averageIrr =
     queuedCases.length === 0

@@ -94,6 +94,7 @@ export type FinanceDecisionRecord = {
     | "approve"
     | "reject"
     | "escalate-cfo"
+    | "escallate-ceo"
     | "question-architect"
     | "sales-ops-discrepancy"
     | "sdu-alignment-mismatch"

@@ -45,15 +45,27 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!enabled) {
-      setIsReady(true);
-      return;
-    }
+    let isCancelled = false;
 
-    const draft = readInitialDraft(scopeKey, stage, enabled);
-    setRestoredDraft(draft);
-    setSavedAt(draft?.savedAt ?? null);
-    setIsReady(true);
+    queueMicrotask(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      if (!enabled) {
+        setIsReady(true);
+        return;
+      }
+
+      const draft = readInitialDraft(scopeKey, stage, enabled);
+      setRestoredDraft(draft);
+      setSavedAt(draft?.savedAt ?? null);
+      setIsReady(true);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [enabled, scopeKey, stage]);
 
   useEffect(() => {

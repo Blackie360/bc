@@ -6,7 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleChip } from "@/components/workflow/role-chip";
-import { canEditProject, listProjectsForPage, projectDecisionStatus } from "@/lib/projects";
+import {
+  canEditProject,
+  listProjectsForPage,
+  projectBelongsToRole,
+  projectDecisionStatus,
+} from "@/lib/projects";
 import { getCurrentUserEmail } from "@/lib/current-user";
 import { getAssignedRoleForEmail } from "@/lib/role-assignments";
 import { getRoleRoute, roleRoutes } from "@/lib/workflow";
@@ -46,7 +51,7 @@ export default async function ProjectsPage({
   const roleRoute = query.role ? getRoleRoute(query.role) : undefined;
   const { projects, dataUnavailable } = await listProjectsForPage();
   const visibleProjects = [...(roleRoute
-    ? projects.filter((project) => project.roleQueue === roleRoute.role)
+    ? projects.filter((project) => projectBelongsToRole(project, roleRoute.role))
     : projects)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const badgeLabel = roleRoute?.role ?? "Admin";
   const dashboardHref = roleRoute ? roleRoute.href : "/roles";

@@ -16,10 +16,10 @@ import {
   readFormFieldValue,
   readIndexedFormRows,
   readFileMetadata,
-  readLifecycleStage,
   type BcSubmissionDraft,
   type BcSubmissionLinkDraft,
 } from "@/lib/project-lifecycle-storage";
+import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 
 type LinkRow = {
   id: number;
@@ -91,6 +91,12 @@ function nrcTotal(parts: Record<string, string>) {
     (total, key) => total + (Number(parts[key]) || 0),
     0,
   );
+}
+
+function numberOrZero(value?: string) {
+  if (!value) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function buildRowsFromDraft(links?: BcSubmissionLinkDraft[]): LinkRow[] {
@@ -187,6 +193,7 @@ export function BcSubmissionForm({
   const formRef = useRef<HTMLFormElement>(null);
   const [rows, setRows] = useState<LinkRow[]>([{ id: 1 }]);
   const [nrcParts, setNrcParts] = useState<Record<number, Record<string, string>>>({});
+  const [subsidyRequirement, setSubsidyRequirement] = useState("");
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
@@ -209,12 +216,25 @@ export function BcSubmissionForm({
       return;
     }
 
-    if (restoredDraft?.links?.length) {
-      setRows(buildRowsFromDraft(restoredDraft.links));
-      setNrcParts(buildNrcPartsFromDraft(restoredDraft.links));
-    }
+    let isCancelled = false;
 
-    setHasRestoredDraft(true);
+    queueMicrotask(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      if (restoredDraft?.links?.length) {
+        setRows(buildRowsFromDraft(restoredDraft.links));
+        setNrcParts(buildNrcPartsFromDraft(restoredDraft.links));
+      }
+      setSubsidyRequirement(restoredDraft?.subsidy ?? "");
+
+      setHasRestoredDraft(true);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [isReady, restoredDraft]);
 
   useEffect(() => {
@@ -261,6 +281,11 @@ export function BcSubmissionForm({
   if (!isReady || !hasRestoredDraft) {
     return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
   }
+
+  const routesToSalesOperations = shouldRouteSubsidyToSalesOperations(
+    numberOrZero(subsidyRequirement),
+  );
+  const submitRouteLabel = routesToSalesOperations ? "Sales Ops" : "Finance";
 
   return (
     <form ref={formRef} action={action} className="space-y-4" onSubmit={handleSubmit}>
@@ -408,7 +433,8 @@ export function BcSubmissionForm({
               type="number"
               inputMode="decimal"
               step="0.01"
-              defaultValue={draft?.subsidy}
+              value={subsidyRequirement}
+              onChange={(event) => setSubsidyRequirement(event.currentTarget.value)}
               required
             />
           </Field>
@@ -528,7 +554,7 @@ export function BcSubmissionForm({
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-3">
                 {[
                   ["newBuildCost", "New Build Cost"],
                   ["provisioningCost", "Provisioning Cost"],
@@ -567,6 +593,7 @@ export function BcSubmissionForm({
                     step="0.01"
                     min="0"
                     defaultValue={row.mrc}
+                    className="text-right tabular-nums"
                   />
                 </Field>
                 <Field label="MRR">
@@ -576,6 +603,7 @@ export function BcSubmissionForm({
                     step="0.1"
                     min="0"
                     defaultValue={row.mrr}
+                    className="text-right tabular-nums"
                     required
                   />
                 </Field>
@@ -586,6 +614,7 @@ export function BcSubmissionForm({
                     step="0.01"
                     min="0"
                     defaultValue={row.nrr}
+                    className="text-right tabular-nums"
                   />
                 </Field>
                 <Field label="NRV(USD)">
@@ -636,7 +665,7 @@ export function BcSubmissionForm({
         </FormSubmitButton>
         <FormSubmitButton pendingLabel="Submitting…" name="intent" value="submit">
           <Save className="h-4 w-4" aria-hidden="true" />
-          Submit BC to Finance
+          Submit BC to {submitRouteLabel}
         </FormSubmitButton>
       </div>
     </form>
