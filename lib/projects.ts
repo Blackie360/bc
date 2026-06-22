@@ -939,8 +939,8 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
       title: validated.siteName,
       region: validated.region,
       owner: validated.accountManagerName,
-      state: hasExistingPboq || isFibreReady ? "Business Case Prepared" : "PBOQ Request Submitted",
-      roleQueue: hasExistingPboq || isFibreReady ? "Account Manager" : planningRole,
+      state: "Opportunity Created",
+      roleQueue: "Account Manager",
       type: "Ordinary BC",
       irr: 0,
       payback: 36,
@@ -1603,8 +1603,8 @@ async function localDeleteProject(id: string) {
 }
 
 /** BC preparation drafts are stored in the browser (localStorage) for now. */
-export async function savePreparedBcDraft(id: string, draft: PreparedBcDraft) {
-  void draft;
+export async function savePreparedBcDraft(id: string, _draft: PreparedBcDraft) {
+  void _draft;
 
   const project = await getProject(id);
 

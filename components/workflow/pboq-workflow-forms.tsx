@@ -29,8 +29,7 @@ import {
   type PboqCostLineRecord,
 } from "@/lib/pboq-kickoff-links";
 import type { ProjectRecord } from "@/lib/project-record-types";
-import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
-import { deriveDecision } from "@/lib/workflow";
+import { cn } from "@/lib/utils";
 
 const kenyaCounties = [
   "Baringo",
@@ -153,14 +152,14 @@ function FileUploadField({
   required,
   accept,
   defaultFileName,
-  multiple = false,
+  className,
 }: {
   id: string;
   name: string;
   required?: boolean;
   accept?: string;
   defaultFileName?: string;
-  multiple?: boolean;
+  className?: string;
 }) {
   const [fileName, setFileName] = useState(defaultFileName ?? "No file selected");
 
@@ -176,14 +175,23 @@ function FileUploadField({
   }
 
   return (
-    <div className="flex h-10 items-center gap-3 rounded-md border border-[color:var(--color-border)] bg-white px-2">
+    <div className={cn(
+        "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md border border-[color:var(--color-border)] bg-white px-2.5 py-1",
+        className,
+      )}
+    >
       <label
         htmlFor={id}
-        className="cursor-pointer rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 py-1 text-xs font-medium text-[color:var(--color-muted-strong)]"
+        className="inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md bg-[color:var(--color-surface-soft)] px-2.5 py-1.5 text-xs font-medium text-[color:var(--color-muted-strong)] outline-none ring-inset hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--color-primary)]"
       >
-        Choose File
+        Choose file
       </label>
-      <span className="truncate text-xs text-[color:var(--color-muted-strong)]">{fileName}</span>
+      <span
+        className="min-w-0 flex-1 truncate text-left text-xs text-[color:var(--color-muted-strong)]"
+        title={fileName}
+      >
+        {fileName}
+      </span>
       <input
         id={id}
         name={name}
@@ -732,12 +740,10 @@ export function FiberPlanningForm({
       return;
     }
 
-    let isCancelled = false;
+    let cancelled = false;
 
     queueMicrotask(() => {
-      if (isCancelled) {
-        return;
-      }
+      if (cancelled) return;
 
       if (restoredDraft?.lines?.length) {
         setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
@@ -749,7 +755,7 @@ export function FiberPlanningForm({
     });
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
     };
   }, [initialCostLines, isReady, restoredDraft]);
 
@@ -1526,24 +1532,13 @@ export function PreparedBcForm({
       return;
     }
 
-    let isCancelled = false;
+    let cancelled = false;
 
     queueMicrotask(() => {
-      if (isCancelled) {
-        return;
-      }
+      if (cancelled) return;
 
       if (restoredDraft) {
         setRows(buildInitialLinkRows(project, restoredDraft));
-        setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
-        setSubsidyRequirement(String(restoredDraft.subsidy ?? project.subsidy ?? 0));
-        setExchangeRateKesUsd(
-          String(
-            restoredDraft.exchangeRateKesUsd ||
-              project.exchangeRateKesUsd ||
-              bcTemplatePolicy.defaultExchangeRateKesUsd,
-          ),
-        );
         setActiveTab(restoredDraft.activeTab ?? "details");
       }
 
@@ -1551,7 +1546,7 @@ export function PreparedBcForm({
     });
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
     };
   }, [project, restoredDraft, isReady]);
   const pboqBudget = useMemo(
@@ -1861,25 +1856,49 @@ export function PreparedBcForm({
                 </div>
 
                 <div className="overflow-x-auto rounded-md border border-[color:var(--color-border)]">
-                  <table className="w-full min-w-[1180px] text-left text-sm">
-                    <thead className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
+                  <table className="w-full min-w-[92rem] table-fixed text-left text-sm">
+                    <colgroup>
+                      <col className="w-10" />
+                      <col className="w-[12rem]" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-[7rem]" />
+                      <col className="w-40" />
+                      <col className="w-36" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-56" />
+                      <col className="w-14" />
+                    </colgroup>
+                    <thead className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                       <tr>
                         {[
-                          { label: "#", required: false },
-                          { label: "Link Name", required: true },
-                          { label: "Service", required: true },
-                          { label: "Technology", required: true },
-                          { label: "Onnet / Offnet", required: true },
-                          { label: "PBOQ / Actual Survey Source", required: true },
-                          { label: "Capacity", required: false },
-                          { label: "MRC", required: false },
-                          { label: "MRR", required: true },
-                          { label: "NRR", required: false },
-                          { label: "Per-link Evidence", required: false },
-                          { label: "Action", required: false },
-                        ].map(({ label, required }) => (
-                          <th key={label} className="px-2 py-3 font-medium whitespace-nowrap">
-                            {label}
+                          { label: "#", required: false, thClass: "whitespace-nowrap" },
+                          { label: "Link name", required: true, thClass: "whitespace-normal leading-snug" },
+                          { label: "Service", required: true, thClass: "whitespace-nowrap" },
+                          { label: "Technology", required: true, thClass: "whitespace-nowrap" },
+                          { label: "Onnet / offnet", required: true, thClass: "whitespace-normal leading-snug" },
+                          {
+                            label: "PBOQ / survey / quote source",
+                            required: true,
+                            thClass: "whitespace-normal leading-snug",
+                          },
+                          { label: "Capacity", required: false, thClass: "whitespace-nowrap" },
+                          { label: "MRC", required: false, thClass: "whitespace-nowrap" },
+                          { label: "MRR", required: true, thClass: "whitespace-nowrap" },
+                          { label: "NRR", required: false, thClass: "whitespace-nowrap" },
+                          { label: "Per-link evidence", required: false, thClass: "whitespace-normal leading-snug" },
+                          { label: "Action", required: false, thClass: "whitespace-nowrap" },
+                        ].map(({ label, required, thClass }) => (
+                          <th
+                            key={label}
+                            className={cn(
+                              "px-2 py-3 align-bottom font-medium",
+                              thClass,
+                            )}
+                          >
+                            <span>{label}</span>
                             {required ? (
                               <span className="text-[color:var(--color-danger-text)]" aria-hidden="true">
                                 {" "}
@@ -1895,16 +1914,18 @@ export function PreparedBcForm({
                         const onnetOffnet = row.onnetOffnet ?? "Onnet";
 
                         return (
-                        <tr key={row.id}>
-                          <td className="px-2 py-2 text-[color:var(--color-muted)]">{index + 1}</td>
-                          <td className="px-2 py-2">
+                        <tr key={row.id} className="align-middle">
+                          <td className="align-middle px-2 py-2 text-center text-[color:var(--color-muted)] tabular-nums">
+                            {index + 1}
+                          </td>
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Input
                               name={`links[${index}][linkName]`}
                               defaultValue={row.linkName}
                               required
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][service]`}
                               defaultValue={row.service ?? "DIA"}
@@ -1916,14 +1937,14 @@ export function PreparedBcForm({
                               <option>DFA</option>
                             </Select>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Input
                               name={`links[${index}][technology]`}
                               defaultValue={row.technology ?? "Fiber"}
                               required
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][onnetOffnet]`}
                               value={onnetOffnet}
@@ -1939,7 +1960,7 @@ export function PreparedBcForm({
                               <option>Offnet</option>
                             </Select>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][costSource]`}
                               defaultValue={row.costSource ?? "PBOQ"}
@@ -1951,13 +1972,19 @@ export function PreparedBcForm({
                               <option>3rd Party Quote</option>
                             </Select>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             {onnetOffnet === "Onnet" ? (
                               <>
                                 <CapacityMbpsInput
                                   key={`${row.id}-onnet`}
                                   name={`links[${index}][onnetCapacity]`}
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="any"
+                                  min="0"
                                   defaultValue={row.onnetCapacity}
+                                  placeholder="e.g. 100"
+                                  className="text-right tabular-nums"
                                 />
                                 <input type="hidden" name={`links[${index}][offnetCapacity]`} value="" />
                               </>
@@ -1966,27 +1993,30 @@ export function PreparedBcForm({
                                 <CapacityMbpsInput
                                   key={`${row.id}-offnet`}
                                   name={`links[${index}][offnetCapacity]`}
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="any"
+                                  min="0"
                                   defaultValue={row.offnetCapacity}
+                                  placeholder="e.g. 100"
+                                  className="text-right tabular-nums"
                                 />
                                 <input type="hidden" name={`links[${index}][onnetCapacity]`} value="" />
                               </>
                             )}
                           </td>
-                          <td className="px-2 py-2 min-w-[9rem]">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             <Input
                               name={`links[${index}][mrc]`}
                               type="number"
                               inputMode="decimal"
                               step="0.01"
                               min="0"
-                              value={row.mrc ?? "0"}
+                              defaultValue={row.mrc ?? "0"}
                               className="text-right tabular-nums"
-                              onChange={(event) =>
-                                updateRowRevenue(row.id, "mrc", event.currentTarget.value)
-                              }
                             />
                           </td>
-                          <td className="px-2 py-2 min-w-[9rem]">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             <Input
                               name={`links[${index}][mrr]`}
                               type="number"
@@ -1999,29 +2029,29 @@ export function PreparedBcForm({
                                 updateRowRevenue(row.id, "mrr", event.currentTarget.value)
                               }
                               required
+                              className="text-right tabular-nums"
                             />
                           </td>
-                          <td className="px-2 py-2 min-w-[9rem]">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             <Input
                               name={`links[${index}][nrr]`}
                               type="number"
                               inputMode="decimal"
                               step="0.01"
-                              value={row.nrr ?? "0"}
+                              min="0"
+                              defaultValue={row.nrr ?? "0"}
                               className="text-right tabular-nums"
-                              onChange={(event) =>
-                                updateRowRevenue(row.id, "nrr", event.currentTarget.value)
-                              }
                             />
                           </td>
-                          <td className="px-2 py-2 min-w-[160px]">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <FileUploadField
                               id={`linkEvidence-${row.id}`}
                               name={`linkEvidence-${index}`}
                               defaultFileName={savedDraft?.linkEvidenceAttachments?.[index]?.name}
+                              className="w-full max-w-none"
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="align-middle px-2 py-2">
                             {rows.length > 1 ? (
                               <Button
                                 type="button"
