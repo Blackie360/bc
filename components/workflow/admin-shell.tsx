@@ -5,6 +5,7 @@ import {
   LogOut,
   ShieldCheck,
 } from "lucide-react";
+import { logoutAction } from "@/app/login/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -80,10 +81,12 @@ export function AdminShell({
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                 {badgeLabel}
               </span>
-              <Button size="sm" variant="secondary">
-                LogOut
-                <LogOut className="h-4 w-4" aria-hidden="true" />
-              </Button>
+              <form action={logoutAction}>
+                <Button size="sm" variant="secondary" type="submit">
+                  Logout
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </form>
             </div>
           </div>
         </div>

@@ -1,11 +1,19 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { AdminShell, ShellHeading } from "@/components/workflow/admin-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleChip } from "@/components/workflow/role-chip";
-import { canEditProject, listProjectsForPage } from "@/lib/projects";
+import {
+  canEditProject,
+  listProjectsForPage,
+  projectBelongsToRole,
+  projectDecisionStatus,
+} from "@/lib/projects";
+import { getCurrentUserEmail } from "@/lib/current-user";
+import { getAssignedRoleForEmail } from "@/lib/role-assignments";
 import { getRoleRoute, roleRoutes } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +40,18 @@ export default async function ProjectsPage({
   searchParams: Promise<{ draft?: string; role?: string; saved?: string; submitted?: string }>;
 }) {
   const query = await searchParams;
+  const currentEmail = await getCurrentUserEmail();
+  const assignedRole = await getAssignedRoleForEmail(currentEmail ?? undefined);
+  const assignedRoute = assignedRole ? roleRoutes.find((route) => route.role === assignedRole) : undefined;
+
+  if (assignedRoute && query.role !== assignedRoute.slug) {
+    redirect(`/projects?role=${assignedRoute.slug}`);
+  }
+
   const roleRoute = query.role ? getRoleRoute(query.role) : undefined;
   const { projects, dataUnavailable } = await listProjectsForPage();
   const visibleProjects = [...(roleRoute
-    ? projects.filter((project) => project.roleQueue === roleRoute.role)
+    ? projects.filter((project) => projectBelongsToRole(project, roleRoute.role))
     : projects)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const badgeLabel = roleRoute?.role ?? "Admin";
   const dashboardHref = roleRoute ? roleRoute.href : "/roles";
@@ -80,12 +96,17 @@ export default async function ProjectsPage({
         ) : null}
         {query.submitted === "pboq" ? (
           <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
-            PBOQ request submitted to Fiber Planning for processing. Your Account Manager queue is shown below.
+            PBOQ request submitted to the correct planning queue for processing.
           </div>
         ) : null}
-        {query.submitted === "fiber" ? (
+        {query.submitted === "fibre-ready" ? (
           <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
-            Fiber Planning completed the PBOQ pack. The project is back with Account Manager for BC preparation.
+            Fibre-ready opportunity submitted. The project is ready for BC preparation with no PBOQ required.
+          </div>
+        ) : null}
+        {query.submitted === "fiber" || query.submitted === "planning" ? (
+          <div className="rounded-md border border-[color:var(--color-success-border)] bg-[color:var(--color-success-surface)] px-4 py-3 text-sm text-[color:var(--color-success-text)]">
+            Planning completed the PBOQ pack. The project is back with Account Manager for BC preparation.
           </div>
         ) : null}
         {query.draft === "saved" ? (
@@ -119,8 +140,11 @@ export default async function ProjectsPage({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[color:var(--color-border)]">
-                  {visibleProjects.map((project) => (
-                    // Fiber Planning projects are updated via the Fiber Planning form, not generic edit.
+                  {visibleProjects.map((project) => {
+                    const decisionStatus = projectDecisionStatus(project);
+
+                    return (
+                    // Planning projects are updated via the Planning form, not generic edit.
                     <tr key={project.id} className="hover:bg-[color:var(--color-primary-soft)]">
                       <td className="px-4 py-4">
                         <p className="font-medium">{project.customer}</p>
@@ -137,7 +161,9 @@ export default async function ProjectsPage({
                         ) : null}
                       </td>
                       <td className="px-4 py-4">
-                        <Badge variant="info">{project.decision}</Badge>
+                        <Badge variant={decisionStatus === "Done" ? "success" : "info"}>
+                          {decisionStatus}
+                        </Badge>
                       </td>
                       <td className="px-4 py-4 text-[color:var(--color-muted-strong)]">
                         <p>{new Intl.NumberFormat("en-US").format(project.approvedBudget)}</p>
@@ -171,7 +197,8 @@ export default async function ProjectsPage({
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {visibleProjects.length === 0 ? (
                     <tr>
                       <td className="px-4 py-5 text-sm text-[color:var(--color-muted)]" colSpan={8}>

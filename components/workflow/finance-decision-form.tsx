@@ -12,7 +12,7 @@ import {
   type FinanceDecisionDraft,
 } from "@/lib/project-lifecycle-storage";
 
-type FinanceDecision = "approve" | "reject" | "escalate-cfo" | "question-architect";
+type FinanceDecision = "approve" | "reject" | "escalate-cfo" | "escalate-ceo" | "question-architect";
 
 export function FinanceDecisionForm({
   action,

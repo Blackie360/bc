@@ -27,10 +27,13 @@ const attachmentMetadataSchema = z.object({
   mimeType: z.string().optional(),
   sizeBytes: z.number().optional(),
 });
+const attachmentMetadataListSchema = z.array(attachmentMetadataSchema);
 
 export const pboqKickoffLinkDraftSchema = z.object({
   linkName: z.string().optional(),
   region: z.string().optional(),
+  siteCoordinates: z.string().optional(),
+  buildingName: z.string().optional(),
   service: z.enum(["EPL", "DIA", "DFA"]).optional(),
   capacity: z.string().optional(),
 });
@@ -54,6 +57,7 @@ export const pboqRequestDraftSchema = z.object({
 
 export const fiberPlanningLineDraftSchema = z.object({
   linkName: z.string().optional(),
+  siteCoordinates: z.string().optional(),
   material: z.string().optional(),
   build: z.string().optional(),
   wayleave: z.string().optional(),
@@ -82,6 +86,8 @@ export const preparedBcDraftLinkSchema = z.object({
   mrc: z.string().optional(),
   mrr: z.string().optional(),
   nrr: z.string().optional(),
+  nrv: z.string().optional(),
+  tcv: z.string().optional(),
 });
 
 export const preparedBcDraftSchema = z.object({
@@ -99,9 +105,13 @@ export const preparedBcDraftSchema = z.object({
   capex: z.coerce.number().nonnegative().optional(),
   subsidy: z.coerce.number().nonnegative().optional(),
   approvedBudget: z.coerce.number().nonnegative().optional(),
+  nrv: z.coerce.number().optional(),
+  tcv: z.coerce.number().nonnegative().optional(),
+  exchangeRateKesUsd: z.coerce.number().positive().optional(),
   links: z.array(preparedBcDraftLinkSchema).optional(),
   lsoAttachment: attachmentMetadataSchema.optional(),
   bcTemplate: attachmentMetadataSchema.optional(),
+  bcTemplates: attachmentMetadataListSchema.optional(),
   pboqOrSurveyAttachment: attachmentMetadataSchema.optional(),
   thirdPartyQuotesAttachment: attachmentMetadataSchema.optional(),
   linkEvidenceAttachments: z.array(attachmentMetadataSchema).optional(),
@@ -128,6 +138,9 @@ export const bcSubmissionDraftSchema = z.object({
   capex: z.string().optional(),
   subsidy: z.string().optional(),
   approvedBudget: z.string().optional(),
+  nrv: z.string().optional(),
+  tcv: z.string().optional(),
+  exchangeRateKesUsd: z.string().optional(),
   links: z.array(bcSubmissionLinkDraftSchema).optional(),
   lsoAttachment: attachmentMetadataSchema.optional(),
   bcTemplate: attachmentMetadataSchema.optional(),
@@ -402,4 +415,18 @@ export function readFileMetadata(input: HTMLInputElement): AttachmentMetadata | 
     mimeType: file.type || undefined,
     sizeBytes: file.size,
   };
+}
+
+export function readFileMetadataList(input: HTMLInputElement): AttachmentMetadata[] | undefined {
+  const files = Array.from(input.files ?? []).filter((file) => file.name.length > 0);
+
+  if (files.length === 0) {
+    return undefined;
+  }
+
+  return files.map((file) => ({
+    name: file.name,
+    mimeType: file.type || undefined,
+    sizeBytes: file.size,
+  }));
 }

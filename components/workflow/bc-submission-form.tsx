@@ -105,6 +105,12 @@ function nrcTotal(parts: Record<string, string>) {
   );
 }
 
+function numberOrZero(value?: string) {
+  if (!value) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function buildRowsFromDraft(links?: BcSubmissionLinkDraft[]): LinkRow[] {
   if (!links || links.length === 0) {
     return [{ id: 1 }];
@@ -157,6 +163,9 @@ function buildBcSubmissionDraft(
     capex: readFormFieldValue(form, "capex"),
     subsidy: readFormFieldValue(form, "subsidy"),
     approvedBudget: readFormFieldValue(form, "approvedBudget"),
+    nrv: readFormFieldValue(form, "nrv"),
+    tcv: readFormFieldValue(form, "tcv"),
+    exchangeRateKesUsd: readFormFieldValue(form, "exchangeRateKesUsd"),
     lsoAttachment: readAttachment("lsoAttachment"),
     bcTemplate: readAttachment("bcTemplate"),
     pboqOrSurveyAttachment: readAttachment("pboqOrSurveyAttachment"),
@@ -175,6 +184,8 @@ function buildBcSubmissionDraft(
       "mrc",
       "nrc",
       "nrr",
+      "nrv",
+      "tcv",
       "onnetCapacity",
       "offnetCapacity",
     ]),
@@ -194,6 +205,7 @@ export function BcSubmissionForm({
   const formRef = useRef<HTMLFormElement>(null);
   const [rows, setRows] = useState<LinkRow[]>([{ id: 1 }]);
   const [nrcParts, setNrcParts] = useState<Record<number, Record<string, string>>>({});
+  const [subsidyRequirement, setSubsidyRequirement] = useState("");
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
@@ -279,6 +291,11 @@ export function BcSubmissionForm({
     return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
   }
 
+  const routesToSalesOperations = shouldRouteSubsidyToSalesOperations(
+    numberOrZero(subsidyRequirement),
+  );
+  const submitRouteLabel = routesToSalesOperations ? "Sales Ops" : "Finance";
+
   return (
     <form ref={formRef} action={action} className="space-y-4" onSubmit={handleSubmit}>
       <DraftSavedNotice savedAtLabel={savedAtLabel} saveError={saveError} />
@@ -294,12 +311,7 @@ export function BcSubmissionForm({
               defaultValue={draft?.customerName}
               required
             />
-            <FileUploadField
-              id="lsoAttachment"
-              name="lsoAttachment"
-              required
-              defaultFileName={draft?.lsoAttachment?.name}
-            />
+            
           </Field>
           <Field label="Account Number">
             <Input name="accountNumber" defaultValue={draft?.accountNumber} required />
@@ -365,6 +377,12 @@ export function BcSubmissionForm({
           <Field label="Region">
             <Input name="region" autoComplete="off" defaultValue={draft?.region} required />
           </Field>
+          <FileUploadField
+              id="lsoAttachment"
+              name="lsoAttachment"
+              required
+              defaultFileName={draft?.lsoAttachment?.name}
+            />
           <Field label="Project Executive Summary">
             <Textarea
               name="projectExecutiveSummary"
@@ -424,7 +442,8 @@ export function BcSubmissionForm({
               type="number"
               inputMode="decimal"
               step="0.01"
-              defaultValue={draft?.subsidy}
+              value={subsidyRequirement}
+              onChange={(event) => setSubsidyRequirement(event.currentTarget.value)}
               required
             />
           </Field>
@@ -435,6 +454,39 @@ export function BcSubmissionForm({
               inputMode="decimal"
               step="0.01"
               defaultValue={draft?.approvedBudget}
+              required
+            />
+          </Field>
+          <Field label="NRV (USD)">
+            <Input
+              name="nrv"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              defaultValue={draft?.nrv}
+              required
+            />
+          </Field>
+          <Field label="TCV (USD)">
+            <Input
+              name="tcv"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              defaultValue={draft?.tcv}
+              required
+            />
+          </Field>
+          <Field label="Exchange Rate (KES/USD)">
+            <Input
+              name="exchangeRateKesUsd"
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              defaultValue={draft?.exchangeRateKesUsd}
               required
             />
           </Field>
@@ -455,7 +507,7 @@ export function BcSubmissionForm({
               key={row.id}
               className="space-y-3 rounded-md border border-[color:var(--color-border)] p-3"
             >
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-6">
                 <Field label="Link Name">
                   <Input name={`links[${index}][linkName]`} defaultValue={row.linkName} required />
                 </Field>
@@ -491,6 +543,7 @@ export function BcSubmissionForm({
                     required
                   >
                     <option>PBOQ</option>
+                    <option>Fibre Ready</option>
                     <option>Actual Survey</option>
                     <option>3rd Party Quote</option>
                   </Select>
@@ -528,7 +581,7 @@ export function BcSubmissionForm({
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-3">
                 {[
                   ["newBuildCost", "New Build Cost"],
                   ["provisioningCost", "Provisioning Cost"],
@@ -567,15 +620,17 @@ export function BcSubmissionForm({
                     step="0.01"
                     min="0"
                     defaultValue={row.mrc}
+                    className="text-right tabular-nums"
                   />
                 </Field>
                 <Field label="MRR">
                   <Input
                     name={`links[${index}][mrr]`}
                     type="number"
-                    step="0.01"
+                    step="0.1"
                     min="0"
                     defaultValue={row.mrr}
+                    className="text-right tabular-nums"
                     required
                   />
                 </Field>
@@ -586,6 +641,25 @@ export function BcSubmissionForm({
                     step="0.01"
                     min="0"
                     defaultValue={row.nrr}
+                    className="text-right tabular-nums"
+                  />
+                </Field>
+                <Field label="NRV(USD)">
+                  <Input
+                    name={`links[${index}][nrv]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.nrv}
+                  />
+                </Field>
+                <Field label="TCV(USD)">
+                  <Input
+                    name={`links[${index}][tcv]`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={row.tcv}
                   />
                 </Field>
               </div>
@@ -618,7 +692,7 @@ export function BcSubmissionForm({
         </FormSubmitButton>
         <FormSubmitButton pendingLabel="Submitting…" name="intent" value="submit">
           <Save className="h-4 w-4" aria-hidden="true" />
-          Submit BC to Finance
+          Submit BC to {submitRouteLabel}
         </FormSubmitButton>
       </div>
     </form>

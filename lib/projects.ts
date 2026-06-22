@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { normalizeCapacityMbpsInput } from "@/lib/capacity";
 import {
   preparedBcDraftSchema,
   type PreparedBcDraft,
@@ -19,6 +20,7 @@ import {
   linkCostSourceValues,
   linkOnnetOffnetValues,
 } from "@/lib/projects-types";
+import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 
 export {
   encodeKickoffLinkNotes,
@@ -85,7 +87,9 @@ export const bcLinkInputSchema = z.object({
   mrr: z.coerce.number().nonnegative(),
   mrc: z.coerce.number().nonnegative(),
   nrc: z.coerce.number().nonnegative(),
-  nrr: z.coerce.number().nonnegative(),
+  nrr: z.coerce.number(),
+  nrv: z.coerce.number().nonnegative().default(0),
+  tcv: z.coerce.number().nonnegative().default(0),
   onnetCapacity: z.string().optional(),
   offnetCapacity: z.string().optional(),
   evidenceAttachmentIndex: z.number().int().nonnegative().optional(),
@@ -104,6 +108,9 @@ export const bcSubmissionInputSchema = z.object({
   capex: z.coerce.number().nonnegative(),
   subsidy: z.coerce.number().nonnegative(),
   approvedBudget: z.coerce.number().nonnegative(),
+  nrv: z.coerce.number(),
+  tcv: z.coerce.number().nonnegative(),
+  exchangeRateKesUsd: z.coerce.number().positive(),
   links: z.array(bcLinkInputSchema).min(1),
   accountNumber: z.string().min(1),
   contractTermMonths: z.coerce.number().int().positive(),
@@ -132,6 +139,7 @@ export const pboqRequestInputSchema = z
   .object({
     opportunityNumber: z.string().min(2),
     customerName: z.string().min(2),
+    technology: z.enum(["Fibre Ready", "Fibre Entry", "Wireless"]),
     siteName: z.string().min(2),
     siteCoordinates: z.string().min(2),
     dateRequested: z.string().min(1),
@@ -141,8 +149,8 @@ export const pboqRequestInputSchema = z
     accountManagerName: z.string().min(2),
     region: z.string().min(2),
     segment: z.string().min(2),
-    mrr: z.coerce.number().positive(),
-    nrr: z.coerce.number().positive(),
+    mrr: z.coerce.number().nonnegative(),
+    nrr: z.coerce.number().nonnegative(),
     contractTermMonths: z.coerce.number().int().positive(),
     pboqMode: z.enum(["existing", "request"]).default("request"),
     routeDistanceKm: z.coerce.number().nonnegative().default(0),
@@ -180,6 +188,7 @@ export type PboqRequestInput = z.infer<typeof pboqRequestInputSchema>;
 
 export const pboqCostLineInputSchema = z.object({
   linkName: z.string().min(1),
+  siteCoordinates: z.string().min(2).optional(),
   material: z.coerce.number().nonnegative(),
   build: z.coerce.number().nonnegative(),
   wayleave: z.coerce.number().nonnegative(),
@@ -205,6 +214,7 @@ export const fiberPlanningInputSchema = z.object({
 });
 
 export type FiberPlanningInput = z.infer<typeof fiberPlanningInputSchema>;
+export type WirelessPlanningInput = FiberPlanningInput;
 
 export const preparedBcInputSchema = z.object({
   customerName: z.string().min(2),
@@ -221,6 +231,9 @@ export const preparedBcInputSchema = z.object({
   capex: z.coerce.number().nonnegative(),
   subsidy: z.coerce.number().nonnegative(),
   approvedBudget: z.coerce.number().nonnegative(),
+  nrv: z.coerce.number().nonnegative(),
+  tcv: z.coerce.number().nonnegative(),
+  exchangeRateKesUsd: z.coerce.number().positive(),
   links: z.array(bcLinkInputSchema).min(1),
   lsoAttachment: z.object({
     type: z.literal("LSO"),
@@ -229,13 +242,17 @@ export const preparedBcInputSchema = z.object({
     sizeBytes: z.number().int().positive(),
     storageKey: z.string().min(1),
   }),
-  bcTemplate: z.object({
-    type: z.literal("BC_TEMPLATE"),
-    name: z.string().min(1),
-    mimeType: z.string().min(1),
-    sizeBytes: z.number().int().positive(),
-    storageKey: z.string().min(1),
-  }),
+  bcTemplates: z
+    .array(
+      z.object({
+        type: z.literal("BC_TEMPLATE"),
+        name: z.string().min(1),
+        mimeType: z.string().min(1),
+        sizeBytes: z.number().int().positive(),
+        storageKey: z.string().min(1),
+      }),
+    )
+    .min(1),
   pboqOrSurveyAttachment: z
     .object({
       type: z.enum(["PBOQ", "ACTUAL_SURVEY_QUOTE"]),
@@ -285,6 +302,9 @@ export type BcDraftInput = {
   capex: number;
   subsidy: number;
   approvedBudget: number;
+  nrv: number;
+  tcv: number;
+  exchangeRateKesUsd: number;
   links: Array<z.infer<typeof bcLinkInputSchema> & { evidenceAttachmentIndex?: number }>;
   attachments: BcSubmissionInput["attachments"];
 };
@@ -332,6 +352,8 @@ function mapLinkInputToRecord(
     mrc: link.mrc,
     nrc: link.nrc > 0 ? link.nrc : computedNrc,
     nrr: link.nrr,
+    nrv: link.nrv,
+    tcv: link.tcv,
     onnetCapacity: link.onnetCapacity ?? null,
     offnetCapacity: link.offnetCapacity ?? null,
     evidenceDocumentId,
@@ -348,11 +370,15 @@ export function mapKickoffLinksToCostLineRecords(
   return links.map((link) => ({
     id: createId(),
     linkName: link.linkName.trim(),
+    siteCoordinates: link.siteCoordinates.trim(),
     material: 0,
     build: 0,
     wayleave: 0,
+    pboqDocumentId: null,
     notes: encodeKickoffLinkNotes({
       region: link.region,
+      siteCoordinates: link.siteCoordinates,
+      buildingName: link.buildingName,
       service: link.service,
       capacity: link.capacity,
     }),
@@ -365,6 +391,7 @@ export type {
   ProjectRecord,
 } from "@/lib/project-record-types";
 import type {
+  BcApprovalCertificateRecord,
   FinanceDecisionRecord,
   ProjectRecord,
 } from "@/lib/project-record-types";
@@ -380,6 +407,20 @@ export type FinanceDecisionInput = {
   notes: string;
 };
 
+export type SalesOperationsDiscrepancyInput = {
+  notes: string;
+};
+
+export type SduAlignmentMismatchInput = {
+  notes: string;
+};
+
+export type SduSurveyCostInput = {
+  actualSurveyCost: number;
+};
+
+export const SURVEY_COST_DEVIATION_THRESHOLD_PERCENT = 10;
+
 export function isAccountManagerBcPreparationStage(project: ProjectRecord) {
   return (
     project.roleQueue === "Account Manager" &&
@@ -390,7 +431,10 @@ export function isAccountManagerBcPreparationStage(project: ProjectRecord) {
 }
 
 export function canEditProject(project: ProjectRecord) {
-  if (project.roleQueue === "Fiber Planning Team") {
+  if (
+    project.roleQueue === "Fiber Planning Team" ||
+    project.roleQueue === "Wireless Planning Team"
+  ) {
     return false;
   }
 
@@ -401,11 +445,23 @@ export function canEditProject(project: ProjectRecord) {
   return true;
 }
 
+export function projectDecisionStatus(project: Pick<ProjectRecord, "decision">) {
+  return project.decision === "PENDING" ? "Pending" : "Done";
+}
+
 export function hasPboqDocumentAttachment(project: ProjectRecord) {
   return project.documents.some(
     (document) => document.type === "PBOQ" || document.type === "ACTUAL_SURVEY_QUOTE",
   );
 }
+
+const certificateDistributionRecipients: BcApprovalCertificateRecord["distributedTo"] = [
+  "Sales Operations",
+  "Account Manager",
+  "Designated SDU Officer",
+  "Full SDU Team",
+];
+
 function buildReference() {
   return `BC-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 }
@@ -479,6 +535,66 @@ function localDocument(
   };
 }
 
+function generatedCertificateSize(project: ProjectRecord) {
+  return Buffer.byteLength(
+    [
+      `BC Approval Certificate: ${project.id}`,
+      `Customer: ${project.customer}`,
+      `Opportunity: ${project.id}`,
+      `Approved Budget: ${project.approvedBudget}`,
+      `Decision: ${project.decision}`,
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+function issueBcApprovalCertificate(project: ProjectRecord, issuedAt: string): ProjectRecord {
+  const existingCertificateDocument = project.documents.find(
+    (document) => document.type === "BC_APPROVAL_CERTIFICATE",
+  );
+
+  if (project.certificateIssued && project.certificate && existingCertificateDocument) {
+    return project;
+  }
+
+  const document =
+    existingCertificateDocument ??
+    localDocument(
+      {
+        type: "BC_APPROVAL_CERTIFICATE",
+        name: `BC Approval Certificate - ${project.id}.pdf`,
+        mimeType: "application/pdf",
+        sizeBytes: generatedCertificateSize(project),
+      },
+      issuedAt,
+    );
+
+  return {
+    ...project,
+    certificateIssued: true,
+    certificate: {
+      id: project.certificate?.id ?? createId(),
+      documentId: document.id,
+      salesforceOpportunityId: project.id,
+      salesforceUploadStatus: "uploaded",
+      distributedTo: certificateDistributionRecipients,
+      issuedAt,
+    },
+    documents: existingCertificateDocument ? project.documents : [document, ...project.documents],
+  };
+}
+
+function revokeBcApprovalCertificate(project: ProjectRecord): ProjectRecord {
+  return {
+    ...project,
+    certificateIssued: false,
+    certificate: null,
+    documents: project.documents.filter(
+      (document) => document.type !== "BC_APPROVAL_CERTIFICATE",
+    ),
+  };
+}
+
 function localDecision(input: Pick<ProjectInput, "irr" | "payback" | "subsidy" | "capex">) {
   return deriveDecision({
     irr: input.irr,
@@ -522,6 +638,7 @@ function createLocalProjectRecord(
     designPlanDate: overrides.designPlanDate ?? null,
     region: input.region,
     owner: input.owner,
+    accountManagerName: overrides.accountManagerName ?? input.owner,
     accountNumber: overrides.accountNumber ?? "",
     solutionArchitectureName: overrides.solutionArchitectureName ?? "Unassigned",
     solutionEngineerName: overrides.solutionEngineerName ?? "Unassigned",
@@ -529,6 +646,7 @@ function createLocalProjectRecord(
     opportunityMrr,
     opportunityNrr,
     contractTermMonths: overrides.contractTermMonths ?? 12,
+    exchangeRateKesUsd: overrides.exchangeRateKesUsd ?? 0,
     pboqRequest: overrides.pboqRequest,
     links,
     documents: overrides.documents ?? [],
@@ -536,6 +654,8 @@ function createLocalProjectRecord(
     totalMrc: overrides.totalMrc ?? links.reduce((total, link) => total + link.mrc, 0),
     totalNrc: overrides.totalNrc ?? links.reduce((total, link) => total + link.nrc, 0),
     totalNrr: overrides.totalNrr ?? (links.reduce((total, link) => total + link.nrr, 0) || opportunityNrr),
+    nrv: overrides.nrv,
+    tcv: overrides.tcv,
     state: input.state,
     roleQueue: input.roleQueue,
     type: input.type,
@@ -547,6 +667,7 @@ function createLocalProjectRecord(
     actualSpend,
     decision: overrides.decision ?? localDecision(input),
     certificateIssued: overrides.certificateIssued ?? false,
+    certificate: overrides.certificate ?? null,
     variance: overrides.variance ?? localVariance(actualSpend, approvedBudget),
     surveyDeviation: input.surveyDeviation,
     revisions: overrides.revisions ?? 0,
@@ -569,6 +690,7 @@ function updateLocalProjectRecord(project: ProjectRecord, input: ProjectInput): 
       leadNetworkPlanner: project.leadNetworkPlanner,
       dateRequested: project.dateRequested,
       designPlanDate: project.designPlanDate,
+      accountManagerName: project.accountManagerName,
       solutionArchitectureName: project.solutionArchitectureName,
       solutionEngineerName: project.solutionEngineerName,
       accountNumber: project.accountNumber,
@@ -576,10 +698,12 @@ function updateLocalProjectRecord(project: ProjectRecord, input: ProjectInput): 
       opportunityMrr: project.opportunityMrr,
       opportunityNrr: project.opportunityNrr,
       contractTermMonths: project.contractTermMonths,
+      exchangeRateKesUsd: project.exchangeRateKesUsd,
       pboqRequest: project.pboqRequest,
       links: project.links,
       documents: project.documents,
       certificateIssued: project.certificateIssued,
+      certificate: project.certificate,
       revisions: project.revisions + 1,
       createdAt: project.createdAt,
     }),
@@ -587,11 +711,19 @@ function updateLocalProjectRecord(project: ProjectRecord, input: ProjectInput): 
   };
 }
 
-function localRouteForPreparedBusinessCase(): {
+function localRouteForPreparedBusinessCase(subsidyUsd: number): {
   state: WorkflowState;
   role: Role;
   autoApproved: boolean;
 } {
+  if (shouldRouteSubsidyToSalesOperations(subsidyUsd)) {
+    return {
+      state: "Sales Operations Validation",
+      role: "Sales Operations",
+      autoApproved: true,
+    };
+  }
+
   return {
     state: "Finance / CFO Approval",
     role: "BC Analyst / Finance",
@@ -629,6 +761,56 @@ function localFinanceDecisionRecord(input: FinanceDecisionInput): FinanceDecisio
     id: createId(),
     decision: input.decision,
     notes,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function localSalesOperationsDiscrepancyRecord(
+  input: SalesOperationsDiscrepancyInput,
+): FinanceDecisionRecord {
+  const notes = input.notes.trim();
+  if (notes.length < 3) {
+    throw new Error("Discrepancy notes are required.");
+  }
+
+  return {
+    id: createId(),
+    decision: "sales-ops-discrepancy",
+    notes,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function localSduAlignmentMismatchRecord(
+  input: SduAlignmentMismatchInput,
+): FinanceDecisionRecord {
+  const notes = input.notes.trim();
+  if (notes.length < 3) {
+    throw new Error("SDU mismatch justification is required.");
+  }
+
+  return {
+    id: createId(),
+    decision: "sdu-alignment-mismatch",
+    notes,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function localSduSurveyVarianceRecord(input: {
+  actualSurveyCost: number;
+  baselineSurveyCost: number;
+  deviationPercent: number;
+}): FinanceDecisionRecord {
+  return {
+    id: createId(),
+    decision: "sdu-survey-variance",
+    notes: [
+      "Actual survey cost exceeded the SDU variance threshold.",
+      `Baseline survey cost: ${input.baselineSurveyCost}`,
+      `Actual survey cost: ${input.actualSurveyCost}`,
+      `Deviation: ${input.deviationPercent}%`,
+    ].join("\n"),
     createdAt: new Date().toISOString(),
   };
 }
@@ -680,14 +862,59 @@ function deriveProjectRequiredService(
 
 function deriveProjectCapacity(links: Array<{ capacity?: string }>) {
   const values = links
-    .map((link) => link.capacity?.trim())
+    .map((link) => normalizeCapacityMbpsInput(link.capacity))
     .filter((value): value is string => Boolean(value));
 
   if (values.length !== links.length) {
-    throw new Error("Each service link requires a capacity.");
+    throw new Error("Each service link requires a valid Mbps capacity.");
   }
 
   return [...new Set(values)].join(", ");
+}
+
+export function isFibreReadyOpportunity(project: ProjectRecord) {
+  return project.pboqRequest?.technology === "Fibre Ready" || project.pboqRequest?.costSource === "FIBRE_READY";
+}
+
+export function planningRoleForProject(project: ProjectRecord): Role | null {
+  const technology = project.pboqRequest?.technology;
+
+  if (technology === "Fibre Entry") {
+    return "Fiber Planning Team";
+  }
+
+  if (technology === "Wireless") {
+    return "Wireless Planning Team";
+  }
+
+  return null;
+}
+
+export function projectBelongsToRole(project: ProjectRecord, role: Role) {
+  const planningRole = planningRoleForProject(project);
+  const belongsByRetainedPlanning =
+    planningRole === role && Boolean(project.pboqRequest?.completedAt);
+
+  if (project.roleQueue === role) {
+    return true;
+  }
+
+  return belongsByRetainedPlanning;
+}
+
+function planningRoleForTechnology(technology: PboqRequestInput["technology"]): Role {
+  switch (technology) {
+    case "Fibre Entry":
+      return "Fiber Planning Team";
+    case "Wireless":
+      return "Wireless Planning Team";
+    case "Fibre Ready":
+      return "Account Manager";
+    default: {
+      const exhaustive: never = technology;
+      return exhaustive;
+    }
+  }
 }
 
 async function localCreatePboqRequest(input: PboqRequestInput) {
@@ -700,10 +927,12 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
 
   const now = new Date().toISOString();
   const hasExistingPboq = validated.pboqMode === "existing";
+  const isFibreReady = validated.technology === "Fibre Ready";
   const kickoffCostLines = mapKickoffLinksToCostLineRecords(validated.links);
   const pboqDocument = validated.pboqAttachment
     ? localDocument(validated.pboqAttachment, now)
     : undefined;
+  const planningRole = planningRoleForTechnology(validated.technology);
   const project = createLocalProjectRecord(
     {
       customer: validated.customerName,
@@ -741,15 +970,20 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
       documents: pboqDocument ? [pboqDocument] : [],
       pboqRequest: {
         id: createId(),
+        technology: validated.technology,
         siteCount: validated.links.length,
         routeDistanceKm: validated.routeDistanceKm,
         surveyBudget: validated.surveyAvailable ? validated.actualSurveyCost : 0,
         surveyAvailable: validated.surveyAvailable,
-        costSource: validated.surveyAvailable ? "ACTUAL_SURVEY" : "PBOQ_ESTIMATE",
+        costSource: isFibreReady
+          ? "FIBRE_READY"
+          : validated.surveyAvailable
+            ? "ACTUAL_SURVEY"
+            : "PBOQ_ESTIMATE",
         actualSurveyCost: validated.actualSurveyCost,
         notes: validated.notes || null,
         fiberPlanningNotes: null,
-        completedAt: hasExistingPboq ? now : null,
+        completedAt: hasExistingPboq || isFibreReady ? now : null,
         costLines: kickoffCostLines,
       },
     },
@@ -784,9 +1018,11 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       if (!project.pboqRequest) throw new Error("Project has no PBOQ request.");
       if (
         project.state !== "PBOQ Request Submitted" &&
-        project.state !== "Fiber Planning Generates Costs"
+        project.state !== "Fiber Planning Generates Costs" &&
+        project.state !== "Wireless Planning Generates Costs" &&
+        project.state !== "Business Case Prepared"
       ) {
-        throw new Error("Project is not in a Fiber Planning stage.");
+        throw new Error("Project is not in a planning stage.");
       }
 
       const kickoffLinkCount =
@@ -794,26 +1030,48 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       assertFiberPlanningLineCount(kickoffLinkCount, validated.lines.length);
 
       const now = new Date().toISOString();
-      const costLines = validated.lines.map((line) => ({
-        id: createId(),
+      const newDocuments: ProjectDocumentRecord[] = [];
+      const pboqDocumentsByLine = validated.lines.map((line) => {
+        const existingDocumentId = line.pboqFile.storageKey.startsWith("existing-document:")
+          ? line.pboqFile.storageKey.replace("existing-document:", "")
+          : null;
+        const existingDocument = existingDocumentId
+          ? project.documents.find((document) => document.id === existingDocumentId)
+          : undefined;
+
+        if (existingDocument) {
+          return existingDocument;
+        }
+
+        const document = localDocument(line.pboqFile, now);
+        newDocuments.push(document);
+        return document;
+      });
+      const costLines = validated.lines.map((line, index) => ({
+        id: project.pboqRequest?.costLines[index]?.id ?? createId(),
         linkName: line.linkName,
+        siteCoordinates: line.siteCoordinates?.trim() || undefined,
         material: line.material,
         build: line.build,
         wayleave: line.wayleave,
+        pboqDocumentId: pboqDocumentsByLine[index]?.id ?? null,
         notes: line.notes || null,
       }));
+      const primarySiteCoordinates =
+        costLines.find((line) => line.siteCoordinates)?.siteCoordinates ??
+        project.siteCoordinates;
       const totalCost = costLines.reduce(
         (total, line) => total + line.material + line.build + line.wayleave,
         0,
       );
-      const documents = validated.lines.map((line) => localDocument(line.pboqFile, now));
 
       updatedProject = {
         ...project,
+        siteCoordinates: primarySiteCoordinates,
         state: "Business Case Prepared",
         roleQueue: "Account Manager",
-        capex: Math.max(project.capex, totalCost),
-        approvedBudget: Math.max(project.approvedBudget, totalCost),
+        capex: totalCost,
+        approvedBudget: totalCost,
         pboqRequest: {
           ...project.pboqRequest,
           surveyBudget: totalCost,
@@ -821,7 +1079,7 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
           completedAt: now,
           costLines,
         },
-        documents: [...documents, ...project.documents],
+        documents: [...newDocuments, ...project.documents],
         updatedAt: now,
       };
 
@@ -854,10 +1112,10 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
         subsidyRequirement: validated.subsidy,
         capex: validated.capex,
       }).decision;
-      const route = localRouteForPreparedBusinessCase();
+      const route = localRouteForPreparedBusinessCase(validated.subsidy);
       const newDocuments = [
         localDocument(validated.lsoAttachment, now),
-        localDocument(validated.bcTemplate, now),
+        ...validated.bcTemplates.map((attachment) => localDocument(attachment, now)),
         ...(validated.pboqOrSurveyAttachment
           ? [localDocument(validated.pboqOrSurveyAttachment, now)]
           : []),
@@ -867,7 +1125,8 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
         ...validated.linkEvidenceAttachments.map((attachment) => localDocument(attachment, now)),
       ];
       const baseDocumentCount =
-        2 +
+        1 +
+        validated.bcTemplates.length +
         (validated.pboqOrSurveyAttachment ? 1 : 0) +
         (validated.thirdPartyQuotesAttachment ? 1 : 0);
       const links = validated.links.map((link) =>
@@ -879,7 +1138,7 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
         ),
       );
 
-      updatedProject = {
+      const preparedProject = {
         ...project,
         customer: validated.customerName,
         owner: validated.accountManagerName,
@@ -894,10 +1153,13 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
         capex: validated.capex,
         subsidy: validated.subsidy,
         approvedBudget: validated.approvedBudget,
+        nrv: validated.nrv,
+        tcv: validated.tcv,
+        exchangeRateKesUsd: validated.exchangeRateKesUsd,
         decision,
         state: route.state,
         roleQueue: route.role,
-        certificateIssued: project.certificateIssued || route.autoApproved,
+        certificateIssued: project.certificateIssued,
         links,
         totalMrr: links.reduce((total, link) => total + link.mrr, 0),
         totalMrc: links.reduce((total, link) => total + link.mrc, 0),
@@ -910,6 +1172,9 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
           : project.pboqRequest,
         updatedAt: now,
       };
+      updatedProject = route.autoApproved
+        ? issueBcApprovalCertificate(preparedProject, now)
+        : preparedProject;
 
       return updatedProject;
     }),
@@ -937,7 +1202,7 @@ async function localCreateBcSubmission(input: BcSubmissionInput) {
     subsidyRequirement: validated.subsidy,
     capex: validated.capex,
   }).decision;
-  const route = localRouteForPreparedBusinessCase();
+  const route = localRouteForPreparedBusinessCase(validated.subsidy);
   const documents = validated.attachments.map((attachment) => localDocument(attachment, now));
   const links = validated.links.map((link) =>
     mapLinkInputToRecord(
@@ -972,6 +1237,7 @@ async function localCreateBcSubmission(input: BcSubmissionInput) {
       solutionEngineerName: validated.solutionEngineerName,
       projectExecutiveSummary: validated.projectExecutiveSummary,
       contractTermMonths: validated.contractTermMonths,
+      exchangeRateKesUsd: validated.exchangeRateKesUsd,
       opportunityMrr: links.reduce((total, link) => total + link.mrr, 0),
       opportunityNrr: links.reduce((total, link) => total + link.nrr, 0),
       links,
@@ -980,13 +1246,17 @@ async function localCreateBcSubmission(input: BcSubmissionInput) {
       totalMrc: links.reduce((total, link) => total + link.mrc, 0),
       totalNrc: links.reduce((total, link) => total + link.nrc, 0),
       totalNrr: links.reduce((total, link) => total + link.nrr, 0),
+      nrv: validated.nrv,
+      tcv: validated.tcv,
       decision,
-      certificateIssued: route.autoApproved,
     },
   );
+  const projectWithCertificate = route.autoApproved
+    ? issueBcApprovalCertificate(project, now)
+    : project;
 
-  await writeLocalProjects([project, ...projects]);
-  return project;
+  await writeLocalProjects([projectWithCertificate, ...projects]);
+  return projectWithCertificate;
 }
 
 async function localCreateBcDraft(input: BcDraftInput) {
@@ -1029,12 +1299,15 @@ async function localCreateBcDraft(input: BcDraftInput) {
       solutionEngineerName: input.solutionEngineerName.trim() || "Unassigned",
       projectExecutiveSummary: input.projectExecutiveSummary.trim(),
       contractTermMonths: input.contractTermMonths,
+      exchangeRateKesUsd: input.exchangeRateKesUsd,
       links,
       documents,
       totalMrr: links.reduce((total, link) => total + link.mrr, 0),
       totalMrc: links.reduce((total, link) => total + link.mrc, 0),
       totalNrc: links.reduce((total, link) => total + link.nrc, 0),
       totalNrr: links.reduce((total, link) => total + link.nrr, 0),
+      nrv: input.nrv,
+      tcv: input.tcv,
     },
   );
 
@@ -1051,13 +1324,232 @@ async function localDecideFinanceWorkflow(id: string, input: FinanceDecisionInpu
       if (project.id !== id) return project;
 
       const route = localFinanceRoute(project, input.decision);
-      updatedProject = {
+      const decidedProject = {
         ...project,
         state: route.state,
         roleQueue: route.role,
-        certificateIssued: project.certificateIssued || input.decision === "approve",
         financeDecisions: [...(project.financeDecisions ?? []), financeDecision],
         updatedAt: new Date().toISOString(),
+      };
+      updatedProject =
+        input.decision === "approve"
+          ? issueBcApprovalCertificate(decidedProject, financeDecision.createdAt)
+          : decidedProject;
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localConfirmSalesOperationsOrder(id: string) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      if (
+        project.state !== "Sales Operations Validation" ||
+        project.roleQueue !== "Sales Operations"
+      ) {
+        throw new Error("Sales Operations review is only allowed for Sales Operations queue projects.");
+      }
+
+      updatedProject = {
+        ...project,
+        state: "SDU Validation",
+        roleQueue: "SDU",
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localReportSalesOperationsDiscrepancy(
+  id: string,
+  input: SalesOperationsDiscrepancyInput,
+) {
+  let updatedProject: ProjectRecord | undefined;
+  const discrepancy = localSalesOperationsDiscrepancyRecord(input);
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+
+      if (
+        project.state !== "Sales Operations Validation" ||
+        project.roleQueue !== "Sales Operations"
+      ) {
+        throw new Error("Sales Operations discrepancy is only allowed for Sales Operations queue projects.");
+      }
+
+      updatedProject = {
+        ...revokeBcApprovalCertificate(project),
+        state: "Finance / CFO Approval",
+        roleQueue: "BC Analyst / Finance",
+        revisions: project.revisions + 1,
+        financeDecisions: [...(project.financeDecisions ?? []), discrepancy],
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+function assertSduStage(project: ProjectRecord) {
+  if (project.state !== "SDU Validation" || project.roleQueue !== "SDU") {
+    throw new Error("SDU validation is only allowed for SDU queue projects.");
+  }
+}
+
+function surveyCostDeviationPercent(baselineSurveyCost: number, actualSurveyCost: number) {
+  if (baselineSurveyCost === 0) {
+    return actualSurveyCost === 0 ? 0 : 100;
+  }
+
+  return Number(
+    (Math.abs(actualSurveyCost - baselineSurveyCost) / baselineSurveyCost * 100).toFixed(1),
+  );
+}
+
+async function localConfirmSduAlignment(id: string) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+      assertSduStage(project);
+      if (
+        !isFibreReadyOpportunity(project) &&
+        !project.pboqRequest?.surveyAvailable &&
+        !project.pboqRequest?.actualSurveyCost
+      ) {
+        throw new Error("Existing survey evidence is required before proceeding to Site Acquisition.");
+      }
+
+      updatedProject = {
+        ...project,
+        state: "Survey & Site Acquisition",
+        roleQueue: "Site Acquisition Manager",
+        updatedAt: new Date().toISOString(),
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localReportSduAlignmentMismatch(
+  id: string,
+  input: SduAlignmentMismatchInput,
+) {
+  let updatedProject: ProjectRecord | undefined;
+  const mismatch = localSduAlignmentMismatchRecord(input);
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+      assertSduStage(project);
+
+      updatedProject = {
+        ...revokeBcApprovalCertificate(project),
+        state: "Finance / CFO Approval",
+        roleQueue: "BC Analyst / Finance",
+        revisions: project.revisions + 1,
+        financeDecisions: [...(project.financeDecisions ?? []), mismatch],
+        updatedAt: mismatch.createdAt,
+      };
+
+      return updatedProject;
+    }),
+  );
+
+  if (!updatedProject) {
+    throw new Error("Project not found.");
+  }
+
+  return updatedProject;
+}
+
+async function localSubmitSduSurveyCost(id: string, input: SduSurveyCostInput) {
+  let updatedProject: ProjectRecord | undefined;
+
+  await updateLocalProjects((projects) =>
+    projects.map((project) => {
+      if (project.id !== id) return project;
+      assertSduStage(project);
+      if (!project.pboqRequest) {
+        throw new Error("Survey handling requires a PBOQ request.");
+      }
+
+      const actualSurveyCost = z.coerce.number().nonnegative().parse(input.actualSurveyCost);
+      const baselineSurveyCost = project.pboqRequest.surveyBudget || project.approvedBudget;
+      const deviationPercent = surveyCostDeviationPercent(baselineSurveyCost, actualSurveyCost);
+      const now = new Date().toISOString();
+      const pboqRequest = {
+        ...project.pboqRequest,
+        surveyAvailable: true,
+        costSource: "ACTUAL_SURVEY" as const,
+        actualSurveyCost,
+      };
+
+      if (deviationPercent > SURVEY_COST_DEVIATION_THRESHOLD_PERCENT) {
+        const variance = localSduSurveyVarianceRecord({
+          actualSurveyCost,
+          baselineSurveyCost,
+          deviationPercent,
+        });
+        updatedProject = {
+          ...revokeBcApprovalCertificate(project),
+          state: "Business Case Prepared",
+          roleQueue: "Account Manager",
+          approvedBudget: actualSurveyCost,
+          capex: Math.max(project.capex, actualSurveyCost),
+          surveyDeviation: deviationPercent,
+          revisions: project.revisions + 1,
+          pboqRequest,
+          financeDecisions: [...(project.financeDecisions ?? []), variance],
+          updatedAt: variance.createdAt,
+        };
+
+        return updatedProject;
+      }
+
+      updatedProject = {
+        ...project,
+        state: "Survey & Site Acquisition",
+        roleQueue: "Site Acquisition Manager",
+        approvedBudget: Math.max(project.approvedBudget, actualSurveyCost),
+        surveyDeviation: deviationPercent,
+        pboqRequest,
+        updatedAt: now,
       };
 
       return updatedProject;
@@ -1131,6 +1623,10 @@ export async function completeFiberPlanning(id: string, input: FiberPlanningInpu
   return localCompleteFiberPlanning(id, input);
 }
 
+export async function completeWirelessPlanning(id: string, input: WirelessPlanningInput) {
+  return localCompleteFiberPlanning(id, input);
+}
+
 export async function prepareBusinessCaseFromPboq(id: string, input: PreparedBcInput) {
   return localPrepareBusinessCaseFromPboq(id, input);
 }
@@ -1177,6 +1673,32 @@ export async function updateProject(id: string, input: ProjectInput) {
 
 export async function decideFinanceWorkflow(id: string, input: FinanceDecisionInput) {
   return localDecideFinanceWorkflow(id, input);
+}
+
+export async function confirmSalesOperationsOrder(id: string) {
+  return localConfirmSalesOperationsOrder(id);
+}
+
+export async function reportSalesOperationsDiscrepancy(
+  id: string,
+  input: SalesOperationsDiscrepancyInput,
+) {
+  return localReportSalesOperationsDiscrepancy(id, input);
+}
+
+export async function confirmSduAlignment(id: string) {
+  return localConfirmSduAlignment(id);
+}
+
+export async function reportSduAlignmentMismatch(
+  id: string,
+  input: SduAlignmentMismatchInput,
+) {
+  return localReportSduAlignmentMismatch(id, input);
+}
+
+export async function submitSduSurveyCost(id: string, input: SduSurveyCostInput) {
+  return localSubmitSduSurveyCost(id, input);
 }
 
 export async function advanceProjectToNextStage(id: string) {

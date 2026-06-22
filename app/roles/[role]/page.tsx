@@ -1,7 +1,9 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { RoleRoutePage } from "@/components/workflow/role-routes";
+import { getCurrentUserEmail } from "@/lib/current-user";
 import { listProjectsForPage } from "@/lib/projects";
-import { getRoleRoute, roleRoutes } from "@/lib/workflow";
+import { getAssignedRoleForEmail } from "@/lib/role-assignments";
+import { getRoleRoute, roleRoutes, roleSlug } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = false;
@@ -22,6 +24,13 @@ export default async function RolePage({
 
   if (!route) {
     notFound();
+  }
+
+  const currentEmail = await getCurrentUserEmail();
+  const assignedRole = await getAssignedRoleForEmail(currentEmail ?? undefined);
+
+  if (assignedRole && assignedRole !== route.role) {
+    redirect(`/roles/${roleSlug(assignedRole)}`);
   }
 
   const { projects, dataUnavailable } = await listProjectsForPage();

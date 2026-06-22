@@ -41,6 +41,8 @@ export type ProjectLinkRecord = {
   mrc: number;
   nrc: number;
   nrr: number;
+  nrv: number;
+  tcv: number;
   onnetCapacity: string | null;
   offnetCapacity: string | null;
   evidenceDocumentId: string | null;
@@ -55,13 +57,29 @@ export type ProjectDocumentRecord = {
   createdAt: string;
 };
 
+export type CertificateDistributionRecipient =
+  | "Sales Operations"
+  | "Account Manager"
+  | "Designated SDU Officer"
+  | "Full SDU Team";
+
+export type BcApprovalCertificateRecord = {
+  id: string;
+  documentId: string;
+  salesforceOpportunityId: string;
+  salesforceUploadStatus: "uploaded";
+  distributedTo: CertificateDistributionRecipient[];
+  issuedAt: string;
+};
+
 export type PboqRequestRecord = {
   id: string;
+  technology?: "Fibre Ready" | "Fibre Entry" | "Wireless";
   siteCount: number;
   routeDistanceKm: number;
   surveyBudget: number;
   surveyAvailable: boolean;
-  costSource: "ACTUAL_SURVEY" | "PBOQ_ESTIMATE";
+  costSource: "ACTUAL_SURVEY" | "PBOQ_ESTIMATE" | "FIBRE_READY";
   actualSurveyCost: number;
   notes: string | null;
   fiberPlanningNotes: string | null;
@@ -72,11 +90,18 @@ export type PboqRequestRecord = {
 
 export type FinanceDecisionRecord = {
   id: string;
-  decision: "approve" | "reject" | "escalate-cfo" | "question-architect";
+  decision:
+    | "approve"
+    | "reject"
+    | "escalate-cfo"
+    | "escallate-ceo"
+    | "question-architect"
+    | "sales-ops-discrepancy"
+    | "sdu-alignment-mismatch"
+    | "sdu-survey-variance";
   notes: string;
   createdAt: string;
 };
-
 export type ProjectRecord = ProjectInput & {
   id: string;
   siteName: string;
@@ -85,6 +110,7 @@ export type ProjectRecord = ProjectInput & {
   capacity: string;
   salesRequestor: string;
   leadNetworkPlanner: string;
+  accountManagerName: string;
   dateRequested: string;
   designPlanDate: string | null;
   accountNumber: string;
@@ -94,6 +120,7 @@ export type ProjectRecord = ProjectInput & {
   opportunityMrr: number;
   opportunityNrr: number;
   contractTermMonths: number;
+  exchangeRateKesUsd: number;
   pboqRequest?: PboqRequestRecord;
   links: ProjectLinkRecord[];
   documents: ProjectDocumentRecord[];
@@ -101,9 +128,12 @@ export type ProjectRecord = ProjectInput & {
   totalMrc: number;
   totalNrc: number;
   totalNrr: number;
+  nrv?: number;
+  tcv?: number;
   decision: DecisionOutput | "PENDING";
   financeDecisions?: FinanceDecisionRecord[];
   certificateIssued: boolean;
+  certificate?: BcApprovalCertificateRecord | null;
   variance: number;
   revisions: number;
   createdAt: string;
