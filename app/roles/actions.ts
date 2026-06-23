@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { listLdapDirectoryUsers } from "@/lib/auth/ldap";
+import { isAllowedDirectoryEmail, listLdapDirectoryUsers } from "@/lib/auth/ldap";
 import { saveRoleAssignment } from "@/lib/role-assignments";
 import { roleSlug, roles } from "@/lib/workflow";
 
@@ -22,7 +22,7 @@ function parseRole(value: string) {
 
 function fallbackUserForEmail(email: string) {
   const result = z.string().email().safeParse(email);
-  if (!result.success) {
+  if (!result.success || !isAllowedDirectoryEmail(result.data)) {
     return null;
   }
 

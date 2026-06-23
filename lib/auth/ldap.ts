@@ -22,6 +22,7 @@ const DEFAULT_USER_FILTER =
 const DEFAULT_DIRECTORY_USER_FILTER =
   "(&(|(objectClass=user)(objectClass=person))(|(mail=*)(userPrincipalName=*)(proxyAddresses=SMTP:*)))";
 const DEFAULT_ROLE: Role = "Account Manager";
+const DIRECTORY_EMAIL_DOMAIN = "liquid.tech";
 
 function ldapHosts() {
   const hosts = process.env.LDAP_PRIMARY_HOSTS?.split(/[,\s;]+/)
@@ -95,6 +96,10 @@ function emailFromProxyAddresses(entry: Entry) {
   return stringValues(entry, "proxyAddresses")
     .map((value) => value.match(/^SMTP:(.+)$/i)?.[1]?.trim().toLowerCase())
     .find((value): value is string => Boolean(value));
+}
+
+export function isAllowedDirectoryEmail(email: string) {
+  return email.trim().toLowerCase().endsWith(`@${DIRECTORY_EMAIL_DOMAIN}`);
 }
 
 function parseRole(value: string | undefined) {
@@ -177,7 +182,7 @@ function directoryUserSearchLimit() {
 function directoryUserFromEntry(entry: Entry): LdapDirectoryUser | null {
   const email = firstString(entry, "mail", "userPrincipalName")?.toLowerCase() ??
     emailFromProxyAddresses(entry);
-  if (!email) {
+  if (!email || !isAllowedDirectoryEmail(email)) {
     return null;
   }
 
@@ -192,12 +197,16 @@ function configuredDirectoryUsers() {
   return (process.env.ROLE_ASSIGNMENT_EMAIL_OPTIONS ?? "")
     .split(/[,\n;]+/)
     .map((rawEmail) => rawEmail.trim().toLowerCase())
-    .filter(Boolean)
+    .filter(isAllowedDirectoryEmail)
     .map((email) => ({
       username: email,
       displayName: email,
       email,
     }));
+}
+
+function isDirectoryLookupEnabled() {
+  return process.env.LDAP_DIRECTORY_LOOKUP_ENABLED?.trim().toLowerCase() !== "false";
 }
 
 async function listDirectoryUsersAgainstHost(host: string) {
@@ -239,6 +248,10 @@ async function listDirectoryUsersAgainstHost(host: string) {
 export async function listLdapDirectoryUsers(): Promise<LdapDirectoryUser[]> {
   let lastError: unknown;
   const configuredUsers = configuredDirectoryUsers();
+
+  if (!isDirectoryLookupEnabled()) {
+    return configuredUsers;
+  }
 
   for (const host of ldapHosts()) {
     try {

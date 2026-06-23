@@ -150,23 +150,55 @@ BASE_URL=http://localhost:3002 pnpm screenshots
 
 ## Database Commands
 
+The app is set up for MySQL through Drizzle ORM. Copy `.env.example` to `.env`
+and set `DATABASE_URL` to a MySQL connection string, for example:
+
+```bash
+DATABASE_URL="mysql://bc_user:bc_password@localhost:3306/bc"
+```
+
 The package scripts include Drizzle commands:
 
 ```bash
-pnpm db:generate
-pnpm db:migrate
-pnpm db:studio
+npm run db:generate
+npm run db:migrate
+npm run db:studio
 ```
 
 Configure the required database environment variables before running migrations or studio.
+The current schema is defined in `db/schema.ts` and the server-only connection helper is in `db/index.ts`.
+Project CRUD still uses the existing local persistence layer until the migration step is wired in.
 
-Project CRUD reads and writes Postgres through Drizzle. The app uses:
+## LDAP Configuration
+
+LDAP-backed login and role allocation use these environment variables:
+
+```bash
+LDAP_PRIMARY_HOSTS="ldap://ad.example.com:389"
+LDAP_PRIMARY_BASE_DN="DC=example,DC=com"
+LDAP_PRIMARY_USERNAME="CN=ldap-reader,OU=Service Accounts,DC=example,DC=com"
+LDAP_PRIMARY_PASSWORD="change-me"
+```
+
+Use `ldaps://host:636` if your directory requires LDAPS. Multiple hosts can be separated with commas.
+
+The role allocation page also reads directory users for the AD email dropdown. In local development, if the LDAP server is only reachable on the corporate network or VPN, disable that directory lookup and provide fallback email suggestions:
+
+```bash
+LDAP_DIRECTORY_LOOKUP_ENABLED="false"
+ROLE_ASSIGNMENT_EMAIL_OPTIONS="user@liquid.tech;another.user@liquid.tech"
+```
+
+Only `@liquid.tech` email addresses are available for role allocation. You can tune slow directory connections with `LDAP_CONNECT_TIMEOUT_MS`, `LDAP_TIMEOUT_MS`, and `LDAP_DIRECTORY_USER_SIZE_LIMIT`.
+
+The MySQL schema includes:
 
 - `Opportunity` for project identity, customer, stage, region, and owner
-- `BusinessCase` for financial metrics and approval decision output
-- `WorkflowAssignment` for role queue routing
-- `ActualCostCapture` for actual spend and variance reporting
-- dependent records are deleted before the parent opportunity when a project is removed
+- `PboqRequest` and `PboqCostLine` for planning handoff and cost capture
+- `ProjectLink` for prepared BC link pricing and capacity
+- `ProjectDocument` for uploaded document metadata
+- `FinanceDecision` and `BcApprovalCertificate` for approval history
+- dependent records cascade when an opportunity is removed
 
 ## Important Files
 
