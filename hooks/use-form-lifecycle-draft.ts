@@ -45,12 +45,10 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    let isCancelled = false;
+    let cancelled = false;
 
     queueMicrotask(() => {
-      if (isCancelled) {
-        return;
-      }
+      if (cancelled) return;
 
       if (!enabled) {
         setIsReady(true);
@@ -64,7 +62,7 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
     });
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
     };
   }, [enabled, scopeKey, stage]);
 
