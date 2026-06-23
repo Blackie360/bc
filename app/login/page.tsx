@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { LockKeyhole, ShieldCheck } from "lucide-react";
+import { LockKeyhole } from "lucide-react";
 import { loginAction } from "@/app/login/actions";
+import { PasswordField } from "@/app/login/password-field";
+import { LiquidLogo } from "@/components/brand/liquid-logo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,9 +40,12 @@ export default async function LoginPage({
       <div className="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-[color:var(--color-border)] bg-white shadow-xl lg:grid-cols-[1.05fr_0.95fr]">
         <section className="flex flex-col justify-between gap-10 bg-[color:var(--color-primary)] p-8 text-white md:p-10">
           <div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/20">
-              <ShieldCheck className="h-6 w-6" aria-hidden="true" />
-            </div>
+          <div className="w-full h-20 flex items-center justify-center">
+  <div className="flex items-center justify-center max-w-56  bg px-4 py-3 shadow-sm ring-1 ring-white/20"> 
+    <LiquidLogo priority /> 
+  </div>
+</div>
+
             <div className="mt-10 max-w-md">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-white/65">
                 LTK Workflow
@@ -62,9 +67,14 @@ export default async function LoginPage({
         <section className="flex items-center justify-center p-6 md:p-10">
           <Card className="w-full max-w-md border-0 shadow-none">
             <CardHeader className="px-0">
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[color:var(--color-primary-soft)] text-[color:var(--color-primary)]">
-                <LockKeyhole className="h-5 w-5" aria-hidden="true" />
-              </div>
+              {/* <div className="mb-5 flex items-center justify-between gap-4">
+                <div className="w-44">
+                  <LiquidLogo priority />
+                </div>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--color-primary-soft)] text-[color:var(--color-primary)]">
+                  <LockKeyhole className="h-5 w-5" aria-hidden="true" />
+                </div>
+              </div> */}
               <CardTitle className="text-2xl">LDAP Login</CardTitle>
               <CardDescription>
                 Use your network username and password to continue.
@@ -95,13 +105,7 @@ export default async function LoginPage({
                   <label className="text-sm font-medium text-[color:var(--color-muted-strong)]" htmlFor="password">
                     Password
                   </label>
-                  <Input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                  />
+                  <PasswordField />
                 </div>
                 <FormSubmitButton className="w-full" pendingLabel="Signing in…">
                   Sign in

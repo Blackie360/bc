@@ -6,6 +6,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { logoutAction } from "@/app/login/actions";
+import { LiquidLogo } from "@/components/brand/liquid-logo";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -60,12 +61,15 @@ export function AdminShell({
           )}
         >
           {showSidebar ? (
-            <div className="hidden border-r border-[color:var(--color-border)] lg:block" />
+            <div className="hidden items-center border-r border-[color:var(--color-border)] px-4 py-3 lg:flex">
+              <LiquidLogo priority className="max-h-10 max-w-40" />
+            </div>
           ) : null}
           <div className="flex items-center justify-between gap-4 px-6 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-primary-soft-strong)] bg-[color:var(--color-primary-soft)] text-xs font-semibold text-[color:var(--color-primary)]">
-                {code}
+              <div className="flex h-10 w-32 shrink-0 items-center lg:hidden">
+                <LiquidLogo priority className="max-h-10" />
+                <span className="sr-only">{code}</span>
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-[color:var(--color-primary)]">

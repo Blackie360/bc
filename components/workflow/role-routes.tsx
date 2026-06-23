@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { LdapDirectoryUser } from "@/lib/auth/ldap";
+import { projectBelongsToRole } from "@/lib/projects";
 import type { RoleAssignment } from "@/lib/role-assignments";
 import {
   roleRoutes,
@@ -115,10 +116,8 @@ function nextRoutingAction(project: ProjectRecord) {
 
 function requiresDetailForm(project: ProjectRecord) {
   return (
-    project.roleQueue === "Fiber Planning Team" ||
-    project.roleQueue === "Wireless Planning Team" ||
-    (project.roleQueue === "Sales Operations" &&
-      project.state === "Sales Operations Validation") ||
+    (project.roleQueue === "Fiber Planning Team" &&
+      !project.pboqRequest?.completedAt) ||
     (project.roleQueue === "Account Manager" &&
       project.state === "Business Case Prepared" &&
       project.decision === "PENDING")
@@ -504,7 +503,7 @@ export function RoleRoutePage({
 }) {
   const canCreateProject = role === "Account Manager";
   const route = roleRoutes.find((item) => item.role === role);
-  const queuedCases = projects.filter((item) => item.roleQueue === role);
+  const queuedCases = projects.filter((item) => projectBelongsToRole(item, role));
   const readyCount = queuedCases.filter((item) => item.revisions <= 1).length;
   const averageIrr =
     queuedCases.length === 0

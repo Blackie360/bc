@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getCurrentUserRole } from "@/lib/current-user";
 import { parseKickoffLinkNotes } from "@/lib/pboq-kickoff-links";
 import {
   SURVEY_COST_DEVIATION_THRESHOLD_PERCENT,
@@ -31,8 +32,10 @@ import {
   hasPboqDocumentAttachment,
   isAccountManagerBcPreparationStage,
   isFibreReadyOpportunity,
+  planningRoleForProject,
+  projectDecisionStatus,
 } from "@/lib/projects";
-import { roleRoutes } from "@/lib/workflow";
+import { roleRoutes, type Role } from "@/lib/workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +68,12 @@ export default async function ProjectDetailPage({
     return notFound();
   }
 
+  const currentRole = await getCurrentUserRole();
+  const projectPlanningRole = planningRoleForProject(project);
+  const isRetainedPlanningProject =
+    projectPlanningRole != null &&
+    currentRole === projectPlanningRole &&
+    Boolean(project.pboqRequest?.completedAt);
   const financeAction = decideFinanceWorkflowAction.bind(null, project.id);
   const fiberPlanningAction = completeFiberPlanningAction.bind(null, project.id);
   const salesOperationsConfirmAction = confirmSalesOperationsOrderAction.bind(null, project.id);
@@ -80,28 +89,42 @@ export default async function ProjectDetailPage({
   const isSDUStage = project.state === "SDU Validation" && project.roleQueue === "SDU";
   const isPlanningStage =
     project.roleQueue === "Fiber Planning Team" ||
-    project.roleQueue === "Wireless Planning Team";
+    project.roleQueue === "Wireless Planning Team" ||
+    isRetainedPlanningProject;
   const planningLabel =
-    project.roleQueue === "Wireless Planning Team" ? "Wireless Planning" : "Fiber Planning";
+    (projectPlanningRole ?? project.roleQueue) === "Wireless Planning Team"
+      ? "Wireless Planning"
+      : "Fiber Planning";
   const showEditProject = canEditProject(project);
-  const isAccountManagerBcStage = isAccountManagerBcPreparationStage(project);
+  const isAccountManagerBcStage =
+    !isRetainedPlanningProject && isAccountManagerBcPreparationStage(project);
   const isFibreReady = isFibreReadyOpportunity(project);
   const showPboqRequestSummary =
     !isPlanningStage && !hasPboqDocumentAttachment(project);
-  const roleRoute = roleRoutes.find((route) => route.role === project.roleQueue);
+  const shellRole: Role =
+    isRetainedPlanningProject && projectPlanningRole ? projectPlanningRole : project.roleQueue;
+  const roleRoute = roleRoutes.find((route) => route.role === shellRole);
   const dashboardHref = roleRoute?.href ?? "/roles";
   const projectsHref = roleRoute ? `/projects?role=${roleRoute.slug}` : "/projects";
   const certificateDocument = project.certificate
     ? project.documents.find((document) => document.id === project.certificate?.documentId)
     : null;
   const certificateHref = `/projects/${encodeURIComponent(project.id)}/certificate`;
+  const pboqDocuments = project.documents.filter((document) => document.type === "PBOQ");
+  const planningPboqFiles =
+    project.pboqRequest?.costLines.map(
+      (line, index) =>
+        project.documents.find((document) => document.id === line.pboqDocumentId) ??
+        pboqDocuments[index],
+    ) ?? [];
+  const decisionStatus = projectDecisionStatus(project);
 
   return (
     <AdminShell
       code="PRJ"
       title={project.customer}
       subtitle={project.id}
-      badgeLabel={project.roleQueue}
+      badgeLabel={shellRole}
       primaryActive="projects"
       workflowLinks={[]}
       showWorkflowLinks={false}
@@ -159,7 +182,9 @@ export default async function ProjectDetailPage({
           <Card>
             <CardContent className="p-4">
               <p className="text-[11px] font-medium uppercase tracking-wide text-[color:var(--color-muted)]">Decision</p>
-              <Badge className="mt-1" variant="info">{project.decision}</Badge>
+              <Badge className="mt-1" variant={decisionStatus === "Done" ? "success" : "info"}>
+                {decisionStatus}
+              </Badge>
             </CardContent>
           </Card>
           <Card>
@@ -280,12 +305,18 @@ export default async function ProjectDetailPage({
                       <ul className="mt-2 space-y-2 text-sm">
                         {project.pboqRequest.costLines.map((line) => {
                           const kickoff = parseKickoffLinkNotes(line.notes);
+                          const siteCoordinates = line.siteCoordinates?.trim() || kickoff.siteCoordinates;
 
                           return (
                             <li key={line.id} className="flex flex-wrap items-center gap-2">
                               <span className="font-medium">{line.linkName}</span>
                               {kickoff.region ? (
                                 <Badge>{kickoff.region}</Badge>
+                              ) : null}
+                              {siteCoordinates ? (
+                                <span className="font-mono text-xs text-[color:var(--color-muted)]">
+                                  {siteCoordinates}
+                                </span>
                               ) : null}
                               {kickoff.service ? (
                                 <Badge>{kickoff.service}</Badge>
@@ -320,6 +351,7 @@ export default async function ProjectDetailPage({
               action={fiberPlanningAction}
               projectId={project.id}
               initialCostLines={project.pboqRequest?.costLines ?? []}
+              initialPboqFiles={planningPboqFiles}
               kickoffLinkCount={project.pboqRequest?.costLines.length ?? 0}
               planningLabel={planningLabel}
             />
@@ -339,47 +371,8 @@ export default async function ProjectDetailPage({
                 Select a Finance outcome and include the reason before routing the project.
               </p>
             </CardHeader>
-            <CardContent className="grid gap-3 p-4 md:grid-cols-2">
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Approved cases move to the Sales Operations validation queue."
-                decision="approve"
-                label="Approve"
-                notesLabel="Approval reason"
-                notesPlaceholder="Explain why Finance approved this project."
-                projectId={project.id}
-                variant="default"
-              />
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Rejected cases remain in the current Finance queue for follow-up."
-                decision="reject"
-                label="Reject"
-                notesLabel="Rejection reason"
-                notesPlaceholder="Explain why Finance rejected this project."
-                variant="warning"
-                projectId={project.id}
-              />
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Escalations move to the CFO queue for executive review."
-                decision="escalate-cfo"
-                label="Escalate"
-                notesLabel="Escalation reason"
-                notesPlaceholder="Explain why CFO escalation is needed."
-                variant="warning"
-                projectId={project.id}
-              />
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Redirect with a question to Solutions Architecture."
-                decision="question-architect"
-                label="Redirect with Question"
-                notesLabel="Question for Solutions Architecture"
-                notesPlaceholder="Write the question for Solutions Architecture."
-                variant="warning"
-                projectId={project.id}
-              />
+            <CardContent className="p-4">
+              <FinanceDecisionForm action={financeAction} projectId={project.id} />
             </CardContent>
           </Card>
         ) : null}

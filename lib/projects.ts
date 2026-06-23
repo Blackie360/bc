@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { normalizeCapacityMbpsInput } from "@/lib/capacity";
 import {
   preparedBcDraftSchema,
   type PreparedBcDraft,
@@ -18,9 +19,8 @@ import {
 import {
   linkCostSourceValues,
   linkOnnetOffnetValues,
-  type LinkCostSource,
-  type LinkOnnetOffnet,
 } from "@/lib/projects-types";
+import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 
 export {
   encodeKickoffLinkNotes,
@@ -36,7 +36,6 @@ import {
   workflowTransitions,
   workflowStates,
   type BusinessCaseType,
-  type DecisionOutput,
   type Role,
   type WorkflowState,
 } from "@/lib/workflow";
@@ -75,36 +74,6 @@ export {
   type LinkOnnetOffnet,
 } from "@/lib/projects-types";
 
-const linkOnnetOffnetToDb: Record<LinkOnnetOffnet, "ONNET" | "OFFNET"> = {
-  Onnet: "ONNET",
-  Offnet: "OFFNET",
-};
-
-const linkOnnetOffnetFromDb: Record<"ONNET" | "OFFNET", LinkOnnetOffnet> = {
-  ONNET: "Onnet",
-  OFFNET: "Offnet",
-};
-
-const linkCostSourceToDb: Record<
-  LinkCostSource,
-  "PBOQ" | "FIBRE_READY" | "ACTUAL_SURVEY" | "THIRD_PARTY_QUOTE"
-> = {
-  PBOQ: "PBOQ",
-  "Fibre Ready": "FIBRE_READY",
-  "Actual Survey": "ACTUAL_SURVEY",
-  "3rd Party Quote": "THIRD_PARTY_QUOTE",
-};
-
-const linkCostSourceFromDb: Record<
-  "PBOQ" | "FIBRE_READY" | "ACTUAL_SURVEY" | "THIRD_PARTY_QUOTE",
-  LinkCostSource
-> = {
-  PBOQ: "PBOQ",
-  FIBRE_READY: "Fibre Ready",
-  ACTUAL_SURVEY: "Actual Survey",
-  THIRD_PARTY_QUOTE: "3rd Party Quote",
-};
-
 export const bcLinkInputSchema = z.object({
   linkName: z.string().min(1),
   service: z.string().min(1),
@@ -139,7 +108,7 @@ export const bcSubmissionInputSchema = z.object({
   capex: z.coerce.number().nonnegative(),
   subsidy: z.coerce.number().nonnegative(),
   approvedBudget: z.coerce.number().nonnegative(),
-  nrv: z.coerce.number().nonnegative(),
+  nrv: z.coerce.number(),
   tcv: z.coerce.number().nonnegative(),
   exchangeRateKesUsd: z.coerce.number().positive(),
   links: z.array(bcLinkInputSchema).min(1),
@@ -219,6 +188,7 @@ export type PboqRequestInput = z.infer<typeof pboqRequestInputSchema>;
 
 export const pboqCostLineInputSchema = z.object({
   linkName: z.string().min(1),
+  siteCoordinates: z.string().min(2).optional(),
   material: z.coerce.number().nonnegative(),
   build: z.coerce.number().nonnegative(),
   wayleave: z.coerce.number().nonnegative(),
@@ -400,11 +370,15 @@ export function mapKickoffLinksToCostLineRecords(
   return links.map((link) => ({
     id: createId(),
     linkName: link.linkName.trim(),
+    siteCoordinates: link.siteCoordinates.trim(),
     material: 0,
     build: 0,
     wayleave: 0,
+    pboqDocumentId: null,
     notes: encodeKickoffLinkNotes({
       region: link.region,
+      siteCoordinates: link.siteCoordinates,
+      buildingName: link.buildingName,
       service: link.service,
       capacity: link.capacity,
     }),
@@ -419,7 +393,6 @@ export type {
 import type {
   BcApprovalCertificateRecord,
   FinanceDecisionRecord,
-  PboqRequestRecord,
   ProjectRecord,
 } from "@/lib/project-record-types";
 
@@ -470,6 +443,10 @@ export function canEditProject(project: ProjectRecord) {
   }
 
   return true;
+}
+
+export function projectDecisionStatus(project: Pick<ProjectRecord, "decision">) {
+  return project.decision === "PENDING" ? "Pending" : "Done";
 }
 
 export function hasPboqDocumentAttachment(project: ProjectRecord) {
@@ -734,11 +711,19 @@ function updateLocalProjectRecord(project: ProjectRecord, input: ProjectInput): 
   };
 }
 
-function localRouteForPreparedBusinessCase(): {
+function localRouteForPreparedBusinessCase(subsidyUsd: number): {
   state: WorkflowState;
   role: Role;
   autoApproved: boolean;
 } {
+  if (shouldRouteSubsidyToSalesOperations(subsidyUsd)) {
+    return {
+      state: "Sales Operations Validation",
+      role: "Sales Operations",
+      autoApproved: true,
+    };
+  }
+
   return {
     state: "Finance / CFO Approval",
     role: "BC Analyst / Finance",
@@ -877,11 +862,11 @@ function deriveProjectRequiredService(
 
 function deriveProjectCapacity(links: Array<{ capacity?: string }>) {
   const values = links
-    .map((link) => link.capacity?.trim())
+    .map((link) => normalizeCapacityMbpsInput(link.capacity))
     .filter((value): value is string => Boolean(value));
 
   if (values.length !== links.length) {
-    throw new Error("Each service link requires a capacity.");
+    throw new Error("Each service link requires a valid Mbps capacity.");
   }
 
   return [...new Set(values)].join(", ");
@@ -889,6 +874,32 @@ function deriveProjectCapacity(links: Array<{ capacity?: string }>) {
 
 export function isFibreReadyOpportunity(project: ProjectRecord) {
   return project.pboqRequest?.technology === "Fibre Ready" || project.pboqRequest?.costSource === "FIBRE_READY";
+}
+
+export function planningRoleForProject(project: ProjectRecord): Role | null {
+  const technology = project.pboqRequest?.technology;
+
+  if (technology === "Fibre Entry") {
+    return "Fiber Planning Team";
+  }
+
+  if (technology === "Wireless") {
+    return "Wireless Planning Team";
+  }
+
+  return null;
+}
+
+export function projectBelongsToRole(project: ProjectRecord, role: Role) {
+  const planningRole = planningRoleForProject(project);
+  const belongsByRetainedPlanning =
+    planningRole === role && Boolean(project.pboqRequest?.completedAt);
+
+  if (project.roleQueue === role) {
+    return true;
+  }
+
+  return belongsByRetainedPlanning;
 }
 
 function planningRoleForTechnology(technology: PboqRequestInput["technology"]): Role {
@@ -928,8 +939,8 @@ async function localCreatePboqRequest(input: PboqRequestInput) {
       title: validated.siteName,
       region: validated.region,
       owner: validated.accountManagerName,
-      state: hasExistingPboq || isFibreReady ? "Business Case Prepared" : "PBOQ Request Submitted",
-      roleQueue: hasExistingPboq || isFibreReady ? "Account Manager" : planningRole,
+      state: "Opportunity Created",
+      roleQueue: "Account Manager",
       type: "Ordinary BC",
       irr: 0,
       payback: 36,
@@ -1008,7 +1019,8 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       if (
         project.state !== "PBOQ Request Submitted" &&
         project.state !== "Fiber Planning Generates Costs" &&
-        project.state !== "Wireless Planning Generates Costs"
+        project.state !== "Wireless Planning Generates Costs" &&
+        project.state !== "Business Case Prepared"
       ) {
         throw new Error("Project is not in a planning stage.");
       }
@@ -1018,26 +1030,48 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
       assertFiberPlanningLineCount(kickoffLinkCount, validated.lines.length);
 
       const now = new Date().toISOString();
-      const costLines = validated.lines.map((line) => ({
-        id: createId(),
+      const newDocuments: ProjectDocumentRecord[] = [];
+      const pboqDocumentsByLine = validated.lines.map((line) => {
+        const existingDocumentId = line.pboqFile.storageKey.startsWith("existing-document:")
+          ? line.pboqFile.storageKey.replace("existing-document:", "")
+          : null;
+        const existingDocument = existingDocumentId
+          ? project.documents.find((document) => document.id === existingDocumentId)
+          : undefined;
+
+        if (existingDocument) {
+          return existingDocument;
+        }
+
+        const document = localDocument(line.pboqFile, now);
+        newDocuments.push(document);
+        return document;
+      });
+      const costLines = validated.lines.map((line, index) => ({
+        id: project.pboqRequest?.costLines[index]?.id ?? createId(),
         linkName: line.linkName,
+        siteCoordinates: line.siteCoordinates?.trim() || undefined,
         material: line.material,
         build: line.build,
         wayleave: line.wayleave,
+        pboqDocumentId: pboqDocumentsByLine[index]?.id ?? null,
         notes: line.notes || null,
       }));
+      const primarySiteCoordinates =
+        costLines.find((line) => line.siteCoordinates)?.siteCoordinates ??
+        project.siteCoordinates;
       const totalCost = costLines.reduce(
         (total, line) => total + line.material + line.build + line.wayleave,
         0,
       );
-      const documents = validated.lines.map((line) => localDocument(line.pboqFile, now));
 
       updatedProject = {
         ...project,
+        siteCoordinates: primarySiteCoordinates,
         state: "Business Case Prepared",
         roleQueue: "Account Manager",
-        capex: Math.max(project.capex, totalCost),
-        approvedBudget: Math.max(project.approvedBudget, totalCost),
+        capex: totalCost,
+        approvedBudget: totalCost,
         pboqRequest: {
           ...project.pboqRequest,
           surveyBudget: totalCost,
@@ -1045,7 +1079,7 @@ async function localCompleteFiberPlanning(id: string, input: FiberPlanningInput)
           completedAt: now,
           costLines,
         },
-        documents: [...documents, ...project.documents],
+        documents: [...newDocuments, ...project.documents],
         updatedAt: now,
       };
 
@@ -1078,7 +1112,7 @@ async function localPrepareBusinessCaseFromPboq(id: string, input: PreparedBcInp
         subsidyRequirement: validated.subsidy,
         capex: validated.capex,
       }).decision;
-      const route = localRouteForPreparedBusinessCase();
+      const route = localRouteForPreparedBusinessCase(validated.subsidy);
       const newDocuments = [
         localDocument(validated.lsoAttachment, now),
         ...validated.bcTemplates.map((attachment) => localDocument(attachment, now)),
@@ -1168,7 +1202,7 @@ async function localCreateBcSubmission(input: BcSubmissionInput) {
     subsidyRequirement: validated.subsidy,
     capex: validated.capex,
   }).decision;
-  const route = localRouteForPreparedBusinessCase();
+  const route = localRouteForPreparedBusinessCase(validated.subsidy);
   const documents = validated.attachments.map((attachment) => localDocument(attachment, now));
   const links = validated.links.map((link) =>
     mapLinkInputToRecord(
@@ -1570,6 +1604,8 @@ async function localDeleteProject(id: string) {
 
 /** BC preparation drafts are stored in the browser (localStorage) for now. */
 export async function savePreparedBcDraft(id: string, _draft: PreparedBcDraft) {
+  void _draft;
+
   const project = await getProject(id);
 
   if (!project) {

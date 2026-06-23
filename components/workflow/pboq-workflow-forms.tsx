@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronRight, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronRight, Download, Plus, Save, Trash2 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
@@ -12,8 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
 import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
+import { capacityMbpsInputValue, capacityMbpsNumber } from "@/lib/capacity";
 import {
-  lifecycleDraftScopes,
   readFormFieldValue,
   readIndexedFormRows,
   readFileMetadata,
@@ -28,6 +29,8 @@ import {
   type PboqCostLineRecord,
 } from "@/lib/pboq-kickoff-links";
 import type { ProjectRecord } from "@/lib/project-record-types";
+import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
+import { cn } from "@/lib/utils";
 import { deriveDecision } from "@/lib/workflow";
 
 const kenyaCounties = [
@@ -116,12 +119,51 @@ function RequiredFieldLegend() {
   );
 }
 
+function CapacityMbpsInput({
+  name,
+  defaultValue,
+  value,
+  onChange,
+  required = false,
+}: {
+  name: string;
+  defaultValue?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  required?: boolean;
+}) {
+  const inputValueProps =
+    value == null
+      ? { defaultValue: capacityMbpsInputValue(defaultValue) }
+      : { value, onChange: (event: ChangeEvent<HTMLInputElement>) => onChange?.(event.currentTarget.value) };
+
+  return (
+    <div className="flex h-10 min-w-[9rem] items-center overflow-hidden rounded-md border border-[color:var(--color-border)] bg-white">
+      <Input
+        name={name}
+        type="number"
+        inputMode="decimal"
+        step="0.01"
+        min="0.01"
+        placeholder="1"
+        required={required}
+        className="h-full min-w-0 flex-1 border-0 px-2 text-right tabular-nums focus-visible:ring-0"
+        {...inputValueProps}
+      />
+      <span className="shrink-0 border-l border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 text-xs font-medium text-[color:var(--color-muted-strong)]">
+        Mbps
+      </span>
+    </div>
+  );
+}
+
 function FileUploadField({
   id,
   name,
   required,
   accept,
   defaultFileName,
+  className,
   multiple = false,
 }: {
   id: string;
@@ -129,6 +171,7 @@ function FileUploadField({
   required?: boolean;
   accept?: string;
   defaultFileName?: string;
+  className?: string;
   multiple?: boolean;
 }) {
   const [fileName, setFileName] = useState(defaultFileName ?? "No file selected");
@@ -145,14 +188,23 @@ function FileUploadField({
   }
 
   return (
-    <div className="flex h-10 items-center gap-3 rounded-md border border-[color:var(--color-border)] bg-white px-2">
+    <div className={cn(
+        "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md border border-[color:var(--color-border)] bg-white px-2.5 py-1",
+        className,
+      )}
+    >
       <label
         htmlFor={id}
-        className="cursor-pointer rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 py-1 text-xs font-medium text-[color:var(--color-muted-strong)]"
+        className="inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md bg-[color:var(--color-surface-soft)] px-2.5 py-1.5 text-xs font-medium text-[color:var(--color-muted-strong)] outline-none ring-inset hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--color-primary)]"
       >
-        Choose File
+        Choose file
       </label>
-      <span className="truncate text-xs text-[color:var(--color-muted-strong)]">{fileName}</span>
+      <span
+        className="min-w-0 flex-1 truncate text-left text-xs text-[color:var(--color-muted-strong)]"
+        title={fileName}
+      >
+        {fileName}
+      </span>
       <input
         id={id}
         name={name}
@@ -169,6 +221,10 @@ function FileUploadField({
 
 type Row = { id: number };
 type FiberPlanningRow = Row & FiberPlanningLineDraft;
+type ExistingPboqFile = Pick<
+  ProjectRecord["documents"][number],
+  "id" | "name" | "mimeType" | "sizeBytes"
+>;
 
 type KickoffLinkRow = Row & {
   linkName?: string;
@@ -180,6 +236,95 @@ type KickoffLinkRow = Row & {
 };
 
 const defaultKickoffRegion = kenyaCounties[0];
+const kickoffLinkImportColumns = {
+  linkName: ["linkname", "link", "linkid", "linknumber", "linkno", "sitename"],
+  region: ["region", "county"],
+  siteCoordinates: ["sitecoordinates", "coordinates", "gps", "gpscoordinates", "latlong"],
+  buildingName: ["buildingname", "building", "location", "address"],
+  service: ["service", "servicetype", "product"],
+  capacity: ["capacity", "bandwidth", "speed"],
+} as const;
+
+const fiberPlanningImportColumns = {
+  linkName: ["linkname", "link", "linkid", "linknumber", "linkno", "sitename"],
+  siteCoordinates: ["sitecoordinates", "coordinates", "gps", "gpscoordinates", "latlong"],
+  build: ["build", "buildcost", "newbuild", "newbuildcost", "civilcost"],
+  material: ["material", "materialcost", "materials"],
+  wayleave: ["wayleave", "wayleavecost", "permit", "permitcost"],
+  notes: ["notes", "remarks", "comments"],
+} as const;
+
+function normalizeImportHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function cellText(value: unknown) {
+  if (value == null) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function importedService(value: string): KickoffLinkRow["service"] {
+  const normalized = value.trim().toUpperCase();
+
+  if (normalized === "EPL" || normalized === "DIA" || normalized === "DFA") {
+    return normalized;
+  }
+
+  return "EPL";
+}
+
+function importedCellFromColumns<TColumns extends Record<string, readonly string[]>>(
+  row: Record<string, unknown>,
+  columns: TColumns,
+  field: keyof TColumns,
+) {
+  const entry = Object.entries(row).find(([header]) =>
+    columns[field].some(
+      (column) => column === normalizeImportHeader(header),
+    ),
+  );
+
+  return entry ? cellText(entry[1]) : "";
+}
+
+function importedCell(
+  row: Record<string, unknown>,
+  field: keyof typeof kickoffLinkImportColumns,
+) {
+  return importedCellFromColumns(row, kickoffLinkImportColumns, field);
+}
+
+function importedFiberPlanningCell(
+  row: Record<string, unknown>,
+  field: keyof typeof fiberPlanningImportColumns,
+) {
+  return importedCellFromColumns(row, fiberPlanningImportColumns, field);
+}
+
+function rowsFromImportedWorksheet(rows: Array<Record<string, unknown>>): KickoffLinkRow[] {
+  return rows
+    .map((row, index) => ({
+      id: Date.now() + index,
+      linkName: importedCell(row, "linkName"),
+      region: importedCell(row, "region") || defaultKickoffRegion,
+      siteCoordinates: importedCell(row, "siteCoordinates"),
+      buildingName: importedCell(row, "buildingName"),
+      service: importedService(importedCell(row, "service")),
+      capacity: importedCell(row, "capacity"),
+    }))
+    .filter((row) =>
+      Boolean(
+        row.linkName ||
+          row.siteCoordinates ||
+          row.buildingName ||
+          row.capacity ||
+          row.region !== defaultKickoffRegion,
+      ),
+    );
+}
 
 export function PboqRequestForm({
   action,
@@ -191,6 +336,8 @@ export function PboqRequestForm({
   const [linkRows, setLinkRows] = useState<KickoffLinkRow[]>([
     { id: 1, region: defaultKickoffRegion, service: "EPL" },
   ]);
+  const [linkImportMessage, setLinkImportMessage] = useState<string | null>(null);
+  const [linkImportError, setLinkImportError] = useState<string | null>(null);
   const isFibreReady = technology === "Fibre Ready";
 
   function addLinkRow() {
@@ -208,6 +355,41 @@ export function PboqRequestForm({
     setLinkRows((current) =>
       current.length === 1 ? current : current.filter((row) => row.id !== id),
     );
+  }
+
+  async function importLinkRows(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setLinkImportError(null);
+    setLinkImportMessage(null);
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        throw new Error("The uploaded spreadsheet does not contain any sheets.");
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const importedRows = rowsFromImportedWorksheet(
+        XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" }),
+      );
+
+      if (importedRows.length === 0) {
+        throw new Error("No link rows were found. Check the column headers and try again.");
+      }
+
+      setLinkRows(importedRows);
+      setLinkImportMessage(`Imported ${importedRows.length} link${importedRows.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The spreadsheet could not be imported.";
+      setLinkImportError(message);
+    }
   }
 
   return (
@@ -297,12 +479,34 @@ export function PboqRequestForm({
               Add one link for a single-site deal, or multiple links when the opportunity spans several connections.
             </p>
           </div>
-          <Button type="button" size="sm" variant="secondary" onClick={addLinkRow}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Link
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex h-7 cursor-pointer items-center rounded-md border border-[color:var(--color-border)] bg-white px-3 text-xs font-medium text-[color:var(--color-muted-strong)] hover:border-[color:var(--color-primary)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)]">
+              Import Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={importLinkRows}
+                className="sr-only"
+              />
+            </label>
+            <Button type="button" size="sm" variant="secondary" onClick={addLinkRow}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Link
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-4">
+          <div className="mb-3 space-y-1 text-xs">
+            <p className="text-[color:var(--color-muted)]">
+              Spreadsheet columns: Link Name, Region, Site Coordinates, Building Name, Service, Capacity.
+            </p>
+            {linkImportMessage ? (
+              <p className="text-[color:var(--color-success-text)]">{linkImportMessage}</p>
+            ) : null}
+            {linkImportError ? (
+              <p className="text-[color:var(--color-danger-text)]">{linkImportError}</p>
+            ) : null}
+          </div>
           <div className="overflow-x-auto">
             <datalist id="kenya-counties">
               {kenyaCounties.map((county) => (
@@ -381,10 +585,9 @@ export function PboqRequestForm({
                       </Select>
                     </td>
                     <td className="px-2 py-2">
-                      <Input
+                      <CapacityMbpsInput
                         name={`kickoffLinks[${index}][capacity]`}
                         defaultValue={row.capacity}
-                        placeholder="e.g. 1 Gbps"
                         required
                       />
                     </td>
@@ -425,16 +628,44 @@ function buildFiberPlanningRowsFromCostLines(
 
   return costLines.map((line, index) => {
     const isKickoffNotes = line.notes?.startsWith(KICKOFF_LINK_NOTES_MARKER) ?? false;
+    const kickoff = parseKickoffLinkNotes(line.notes);
+    const siteCoordinates = line.siteCoordinates?.trim() || kickoff.siteCoordinates;
 
     return {
       id: index + 1,
       linkName: line.linkName,
+      siteCoordinates,
       material: line.material > 0 ? String(line.material) : "",
       build: line.build > 0 ? String(line.build) : "",
       wayleave: line.wayleave > 0 ? String(line.wayleave) : "",
       notes: isKickoffNotes ? "" : (line.notes ?? ""),
     };
   });
+}
+
+function buildFiberPlanningRowsFromWorksheet(
+  worksheetRows: Array<Record<string, unknown>>,
+): FiberPlanningRow[] {
+  return worksheetRows
+    .map((row, index) => ({
+      id: Date.now() + index,
+      linkName: importedFiberPlanningCell(row, "linkName"),
+      siteCoordinates: importedFiberPlanningCell(row, "siteCoordinates"),
+      build: importedFiberPlanningCell(row, "build"),
+      material: importedFiberPlanningCell(row, "material"),
+      wayleave: importedFiberPlanningCell(row, "wayleave"),
+      notes: importedFiberPlanningCell(row, "notes"),
+    }))
+    .filter((row) =>
+      Boolean(
+        row.linkName ||
+          row.siteCoordinates ||
+          row.build ||
+          row.material ||
+          row.wayleave ||
+          row.notes,
+      ),
+    );
 }
 
 function buildFiberPlanningRowsFromDraft(lines?: FiberPlanningLineDraft[]): Row[] {
@@ -452,12 +683,14 @@ export function FiberPlanningForm({
   action,
   projectId,
   initialCostLines = [],
+  initialPboqFiles = [],
   kickoffLinkCount = 0,
   planningLabel = "Fiber Planning",
 }: {
   action: (formData: FormData) => void | Promise<void>;
   projectId: string;
   initialCostLines?: PboqCostLineRecord[];
+  initialPboqFiles?: Array<ExistingPboqFile | undefined>;
   kickoffLinkCount?: number;
   planningLabel?: string;
 }) {
@@ -466,6 +699,8 @@ export function FiberPlanningForm({
   const [rows, setRows] = useState<FiberPlanningRow[]>(() =>
     buildFiberPlanningRowsFromCostLines(initialCostLines),
   );
+  const [planningImportMessage, setPlanningImportMessage] = useState<string | null>(null);
+  const [planningImportError, setPlanningImportError] = useState<string | null>(null);
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
@@ -480,11 +715,19 @@ export function FiberPlanningForm({
         const savedFiberDraft = readLifecycleStage(projectId, "fiberPlanning");
         const lineRows = readIndexedFormRows<{
           linkName?: string;
+          siteCoordinates?: string;
           material?: string;
           build?: string;
           wayleave?: string;
           notes?: string;
-        }>(form, "pboqLines", ["linkName", "material", "build", "wayleave", "notes"]);
+        }>(form, "pboqLines", [
+          "linkName",
+          "siteCoordinates",
+          "material",
+          "build",
+          "wayleave",
+          "notes",
+        ]);
 
         return {
           savedAt: new Date().toISOString(),
@@ -511,13 +754,23 @@ export function FiberPlanningForm({
       return;
     }
 
-    if (restoredDraft?.lines?.length) {
-      setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
-    } else if (initialCostLines.length > 0) {
-      setRows(buildFiberPlanningRowsFromCostLines(initialCostLines));
-    }
+    let cancelled = false;
 
-    setHasRestoredDraft(true);
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      if (restoredDraft?.lines?.length) {
+        setRows(buildFiberPlanningRowsFromDraft(restoredDraft.lines) as FiberPlanningRow[]);
+      } else if (initialCostLines.length > 0) {
+        setRows(buildFiberPlanningRowsFromCostLines(initialCostLines));
+      }
+
+      setHasRestoredDraft(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialCostLines, isReady, restoredDraft]);
 
   useEffect(() => {
@@ -540,6 +793,47 @@ export function FiberPlanningForm({
     setRows((current) =>
       current.length === 1 ? current : current.filter((row) => row.id !== id),
     );
+  }
+
+  async function importPlanningRows(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setPlanningImportError(null);
+    setPlanningImportMessage(null);
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        throw new Error("The uploaded spreadsheet does not contain any sheets.");
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const importedRows = buildFiberPlanningRowsFromWorksheet(
+        XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" }),
+      );
+
+      if (importedRows.length === 0) {
+        throw new Error("No planning rows were found. Check the column headers and try again.");
+      }
+
+      if (isMultiLinkKickoff && importedRows.length !== kickoffLinkCount) {
+        throw new Error(`This project has ${kickoffLinkCount} links. Import exactly ${kickoffLinkCount} rows.`);
+      }
+
+      setRows(importedRows);
+      setPlanningImportMessage(
+        `Imported ${importedRows.length} planning row${importedRows.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The spreadsheet could not be imported.";
+      setPlanningImportError(message);
+    }
   }
 
   if (!isReady || !hasRestoredDraft) {
@@ -567,33 +861,74 @@ export function FiberPlanningForm({
               </p>
             ) : null}
           </div>
-          {isMultiLinkKickoff ? null : (
-            <Button type="button" size="sm" variant="secondary" onClick={addRow}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Line
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex h-7 cursor-pointer items-center rounded-md border border-[color:var(--color-border)] bg-white px-3 text-xs font-medium text-[color:var(--color-muted-strong)] hover:border-[color:var(--color-primary)] hover:bg-[color:var(--color-primary-soft)] hover:text-[color:var(--color-primary)]">
+              Import Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={importPlanningRows}
+                className="sr-only"
+              />
+            </label>
+            {isMultiLinkKickoff ? null : (
+              <Button type="button" size="sm" variant="secondary" onClick={addRow}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Line
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-4">
+          <div className="mb-3 space-y-1 text-xs">
+            <p className="text-[color:var(--color-muted)]">
+              Spreadsheet columns: Link Name, Site Coordinates, Build, Material, Wayleave, Notes.
+            </p>
+            {planningImportMessage ? (
+              <p className="text-[color:var(--color-success-text)]">{planningImportMessage}</p>
+            ) : null}
+            {planningImportError ? (
+              <p className="text-[color:var(--color-danger-text)]">{planningImportError}</p>
+            ) : null}
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-[1120px] text-left text-sm">
               <thead className="text-[11px] uppercase text-[color:var(--color-muted)]">
                 <tr>
-                  {["Link", "Build", "Material", "Wayleave", "PBOQ File", "Notes", "Action"].map(
-                    (label) => (
-                      <th key={label} className="px-2 py-2 font-medium">{label}</th>
-                    ),
-                  )}
+                  {[
+                    "Link",
+                    "Site Coordinates",
+                    "Build",
+                    "Material",
+                    "Wayleave",
+                    "PBOQ File",
+                    "Notes",
+                    "Action",
+                  ].map((label) => (
+                    <th key={label} className="px-2 py-2 font-medium">{label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[color:var(--color-border)]">
-                {rows.map((row, index) => (
+                {rows.map((row, index) => {
+                  const existingPboqFile = initialPboqFiles[index];
+                  const defaultPboqFileName =
+                    restoredDraft?.lines?.[index]?.pboqFile?.name ?? existingPboqFile?.name;
+
+                  return (
                   <tr key={row.id}>
                     <td className="px-2 py-2">
                       <Input
                         name={`pboqLines[${index}][linkName]`}
                         defaultValue={row.linkName}
-                        readOnly={isMultiLinkKickoff}
+                        required
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        name={`pboqLines[${index}][siteCoordinates]`}
+                        defaultValue={row.siteCoordinates}
+                        placeholder="1.2975 S, 36.8914 E"
                         required
                       />
                     </td>
@@ -634,9 +969,33 @@ export function FiberPlanningForm({
                       <FileUploadField
                         id={`pboqFile-${row.id}`}
                         name={`pboqLines[${index}][pboqFile]`}
-                        required
-                        defaultFileName={restoredDraft?.lines?.[index]?.pboqFile?.name}
+                        required={!existingPboqFile}
+                        defaultFileName={defaultPboqFileName}
                       />
+                      {existingPboqFile ? (
+                        <>
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqDocumentId]`}
+                            value={existingPboqFile.id}
+                          />
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqFileName]`}
+                            value={existingPboqFile.name}
+                          />
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqMimeType]`}
+                            value={existingPboqFile.mimeType}
+                          />
+                          <input
+                            type="hidden"
+                            name={`pboqLines[${index}][existingPboqSizeBytes]`}
+                            value={existingPboqFile.sizeBytes}
+                          />
+                        </>
+                      ) : null}
                     </td>
                     <td className="px-2 py-2">
                       <Input name={`pboqLines[${index}][notes]`} defaultValue={row.notes} />
@@ -649,7 +1008,8 @@ export function FiberPlanningForm({
                       ) : null}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -693,6 +1053,30 @@ type LinkRowState = {
   mrr?: string;
   nrr?: string;
 };
+type OtherExpenseRowState = {
+  id: number;
+  label?: string;
+  monthlyCost?: string;
+};
+
+const bcTemplateGuidanceFileName = "ordinary-bc-template-guidance.txt";
+const bcTemplatePolicy = {
+  costOfCapital: 0.143,
+  salesCommissionRate: 0.05,
+  adminExpenseRate: 0.03,
+  networkOpexRate: 0.05,
+  licenseFeeRate: 0.01,
+  minimumTaxRate: 0,
+  taxRate: 0.3,
+  capacityCostPerMbps: 1.4,
+  depreciationYears: 8,
+  guidedIrrPercent: 22,
+  subsidyDisclosureThresholdUsd: 300,
+  litInvestmentThresholdUsd: 5000,
+  subsidyMultiple: 3,
+  autoProceedPaybackMonths: 6,
+  defaultExchangeRateKesUsd: 130,
+} as const;
 
 function isFibreReadyProject(project: ProjectRecord) {
   return (
@@ -702,17 +1086,14 @@ function isFibreReadyProject(project: ProjectRecord) {
 }
 
 function defaultRevenueForNewRow(project: ProjectRecord, linkCount: number) {
-  const mrr = linkCount === 1 ? String(project.opportunityMrr) : "0";
+  const mrr = linkCount > 0 ? formatMetricInput(project.opportunityMrr / linkCount) : "0";
+  const nrr = linkCount > 0 ? formatMetricInput(project.opportunityNrr / linkCount) : "0";
   const mrc = "0";
-
-  if (linkCount !== 1) {
-    return { mrc, mrr, nrr: "0" };
-  }
 
   return {
     mrc,
     mrr,
-    nrr: String(calculateNrr(project.opportunityMrr, 0)),
+    nrr,
   };
 }
 
@@ -726,6 +1107,10 @@ function mapDraftLinkToRow(
   link: NonNullable<PreparedBcDraft["links"]>[number],
   index: number,
 ): LinkRowState {
+  const mrc = link.mrc && link.mrc.length > 0 ? link.mrc : "0";
+  const mrr = link.mrr && link.mrr.length > 0 ? link.mrr : "0";
+  const nrr = link.nrr && link.nrr.length > 0 ? link.nrr : "0";
+
   return {
     id: index + 1,
     linkName: link.linkName,
@@ -733,15 +1118,15 @@ function mapDraftLinkToRow(
     technology: link.technology ?? "Fiber",
     onnetOffnet: link.onnetOffnet ?? "Onnet",
     costSource: link.costSource ?? "PBOQ",
-    onnetCapacity: link.onnetCapacity,
-    offnetCapacity: link.offnetCapacity,
+    onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
+    offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
     newBuildCost: link.newBuildCost,
     provisioningCost: link.provisioningCost,
     materialCost: link.materialCost,
     wayleaveCost: link.wayleaveCost,
-    mrc: link.mrc,
-    mrr: link.mrr,
-    nrr: String(calculateNrr(numberOrZero(link.mrr), numberOrZero(link.mrc))),
+    mrc,
+    mrr,
+    nrr,
   };
 }
 
@@ -765,15 +1150,15 @@ function buildInitialLinkRows(
       technology: link.technology || defaultTechnology,
       onnetOffnet: link.onnetOffnet ?? "Onnet",
       costSource: link.costSource ?? defaultCostSource,
-      onnetCapacity: link.onnetCapacity ?? undefined,
-      offnetCapacity: link.offnetCapacity ?? undefined,
+      onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
+      offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
       newBuildCost: String(link.newBuildCost),
       provisioningCost: String(link.provisioningCost),
       materialCost: String(link.materialCost),
       wayleaveCost: String(link.wayleaveCost),
       mrc: String(link.mrc),
       mrr: String(link.mrr),
-      nrr: String(calculateNrr(link.mrr, link.mrc)),
+      nrr: String(link.nrr),
     }));
   }
 
@@ -803,7 +1188,7 @@ function buildInitialLinkRows(
       service: kickoff.service ?? project.requiredService ?? "DIA",
       technology: defaultTechnology,
       costSource: defaultCostSource,
-      onnetCapacity: kickoff.capacity ?? project.capacity ?? undefined,
+      onnetCapacity: capacityMbpsInputValue(kickoff.capacity ?? project.capacity),
       newBuildCost: String(line.build),
       materialCost: String(line.material),
       wayleaveCost: String(line.wayleave),
@@ -811,6 +1196,18 @@ function buildInitialLinkRows(
       ...defaultRevenueForNewRow(project, costLines.length),
     };
   });
+}
+
+function buildInitialOtherExpenseRows(draft?: PreparedBcDraft | null): OtherExpenseRowState[] {
+  if (draft?.otherExpenses && draft.otherExpenses.length > 0) {
+    return draft.otherExpenses.map((expense, index) => ({
+      id: index + 1,
+      label: expense.label,
+      monthlyCost: expense.monthlyCost,
+    }));
+  }
+
+  return [{ id: 1, label: "", monthlyCost: "0" }];
 }
 
 function buildPreparedBcDraft(
@@ -869,6 +1266,10 @@ function buildPreparedBcDraft(
       mrr: readFormFieldValue(form, `links[${index}][mrr]`) || row.mrr,
       nrr: readFormFieldValue(form, `links[${index}][nrr]`) || row.nrr,
     })),
+    otherExpenses: readIndexedFormRows<{
+      label?: string;
+      monthlyCost?: string;
+    }>(form, "otherExpenses", ["label", "monthlyCost"]),
   };
 }
 
@@ -886,30 +1287,35 @@ function nrcTotalFromParts(parts: {
   );
 }
 
-function calculateNrr(mrr: number, mrc: number) {
-  return mrr - mrc;
-}
-
-function calculatePaybackMonths(tcs: number, monthlyNrr: number) {
-  if (monthlyNrr <= 0) {
-    return Number.POSITIVE_INFINITY;
+function formatMetricInput(value: number, decimalPlaces = 2) {
+  if (!Number.isFinite(value)) {
+    return "";
   }
 
-  return tcs / monthlyNrr;
+  return String(Number(value.toFixed(decimalPlaces)));
 }
 
-function calculateAnnualIrrPercentage(tcs: number, monthlyNrr: number, contractTermMonths: number) {
-  if (monthlyNrr <= 0 || contractTermMonths <= 0) {
+function formatMetricDisplay(value: number, decimalPlaces = 2) {
+  if (!Number.isFinite(value)) {
+    return "Not recoverable";
+  }
+
+  return Number(value.toFixed(decimalPlaces)).toLocaleString("en-US");
+}
+
+function numberOrZero(value?: string) {
+  if (!value) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calculateIrrRate(cashFlows: number[]) {
+  if (cashFlows.length < 2 || cashFlows.every((cashFlow) => cashFlow >= 0)) {
     return 0;
   }
 
-  if (tcs <= 0) {
-    return 100;
-  }
-
-  const cashFlows = [-tcs, ...Array.from({ length: contractTermMonths }, () => monthlyNrr)];
   const npv = (rate: number) =>
-    cashFlows.reduce((sum, cashFlow, month) => sum + cashFlow / (1 + rate) ** month, 0);
+    cashFlows.reduce((sum, cashFlow, period) => sum + cashFlow / (1 + rate) ** period, 0);
   let low = -0.9999;
   let high = 10;
   let mid = 0;
@@ -930,21 +1336,176 @@ function calculateAnnualIrrPercentage(tcs: number, monthlyNrr: number, contractT
     }
   }
 
-  return ((1 + mid) ** 12 - 1) * 100;
+  return mid;
 }
 
-function formatMetricInput(value: number, decimalPlaces = 2) {
-  if (!Number.isFinite(value)) {
-    return "";
+function calculateExcelTemplateMetrics({
+  rows,
+  otherExpenseRows,
+  contractTermMonths,
+  exchangeRateKesUsd,
+}: {
+  rows: LinkRowState[];
+  otherExpenseRows: OtherExpenseRowState[];
+  contractTermMonths: number;
+  exchangeRateKesUsd: number;
+}) {
+  const monthlyMrr = rows.reduce((total, row) => total + numberOrZero(row.mrr), 0);
+  const monthlyMrc = rows.reduce((total, row) => total + numberOrZero(row.mrc), 0);
+  const clientNrr = rows.reduce((total, row) => total + numberOrZero(row.nrr), 0);
+  const nrc = rows.reduce(
+    (total, row) =>
+      total +
+      nrcTotalFromParts({
+        newBuildCost: row.newBuildCost,
+        provisioningCost: row.provisioningCost,
+        materialCost: row.materialCost,
+        wayleaveCost: row.wayleaveCost,
+      }),
+    0,
+  );
+  const capacityMbps = rows.reduce((total, row) => {
+    const capacity = row.onnetOffnet === "Offnet" ? row.offnetCapacity : row.onnetCapacity;
+    return total + capacityMbpsNumber(capacity);
+  }, 0);
+  const litInvestment = nrc - clientNrr;
+  const monthlyRevenue = monthlyMrr;
+  const monthlyCapacityCost =
+    capacityMbps * bcTemplatePolicy.capacityCostPerMbps + monthlyMrc;
+  const monthlySalesCommission = monthlyRevenue * bcTemplatePolicy.salesCommissionRate;
+  const monthlyCogs = monthlyCapacityCost + monthlySalesCommission;
+  const monthlyGrossMargin = monthlyRevenue - monthlyCogs;
+  const monthlyAdminExpenses = monthlyRevenue * bcTemplatePolicy.adminExpenseRate;
+  const monthlyNetworkOpex = monthlyRevenue * bcTemplatePolicy.networkOpexRate;
+  const monthlyLicenseFee = monthlyRevenue * bcTemplatePolicy.licenseFeeRate;
+  const monthlyMinimumTax = monthlyRevenue * bcTemplatePolicy.minimumTaxRate;
+  const monthlyOtherExpenses = otherExpenseRows.reduce(
+    (total, expense) => total + numberOrZero(expense.monthlyCost),
+    0,
+  );
+  const monthlyEbitda =
+    monthlyGrossMargin -
+    monthlyNetworkOpex -
+    monthlyAdminExpenses -
+    monthlyLicenseFee -
+    monthlyMinimumTax -
+    monthlyOtherExpenses;
+  const monthlyDepreciation =
+    litInvestment > 0
+      ? litInvestment / (bcTemplatePolicy.depreciationYears * 12)
+      : 0;
+  const monthlyEbt = monthlyEbitda - monthlyDepreciation;
+  const monthlyTax = monthlyEbt < 0 ? 0 : -bcTemplatePolicy.taxRate * monthlyEbt;
+  const monthlyPat = monthlyEbt + monthlyTax;
+  const monthlyFreeCashFlow = monthlyPat + monthlyDepreciation - monthlyTax;
+  const initialFreeCashFlow = -litInvestment;
+  const monthlyDiscountRate = bcTemplatePolicy.costOfCapital / 12;
+  const monthlyNpvs = Array.from({ length: contractTermMonths }, (_item, index) => {
+    const month = index + 1;
+    const discountedCashFlows = Array.from({ length: month }, (_cashFlow, cashFlowIndex) =>
+      monthlyFreeCashFlow / (1 + monthlyDiscountRate) ** (cashFlowIndex + 1),
+    );
+
+    return initialFreeCashFlow + discountedCashFlows.reduce((total, value) => total + value, 0);
+  });
+  const negativeMonths = monthlyNpvs.filter((npv) => npv < 0).length;
+  const paybackMonths =
+    negativeMonths >= contractTermMonths || monthlyFreeCashFlow <= 0
+      ? Number.POSITIVE_INFINITY
+      : negativeMonths === 0
+        ? 0
+        : negativeMonths +
+          -monthlyNpvs[negativeMonths - 1] / monthlyFreeCashFlow;
+  const yearlyCashFlows = [
+    initialFreeCashFlow,
+    ...Array.from({ length: Math.ceil(contractTermMonths / 12) }, (_item, index) => {
+      const monthsInYear = Math.min(12, contractTermMonths - index * 12);
+      return monthlyFreeCashFlow * monthsInYear;
+    }),
+  ];
+  const yearlyIrrs = yearlyCashFlows
+    .slice(1)
+    .map((_cashFlow, index) => calculateIrrRate(yearlyCashFlows.slice(0, index + 2)));
+  const irr = Math.max(0, ...yearlyIrrs) * 100;
+  const nrv = monthlyNpvs[contractTermMonths - 1] ?? initialFreeCashFlow;
+  const tcv = (monthlyMrr - monthlyMrc) * contractTermMonths + clientNrr;
+  const firstMonthNpv = monthlyNpvs[0] ?? initialFreeCashFlow;
+  const guidance1 =
+    firstMonthNpv > 0 ||
+    (litInvestment <= bcTemplatePolicy.litInvestmentThresholdUsd &&
+      irr >= bcTemplatePolicy.guidedIrrPercent &&
+      litInvestment <= monthlyMrr * bcTemplatePolicy.subsidyMultiple &&
+      paybackMonths <= bcTemplatePolicy.autoProceedPaybackMonths)
+      ? "Proceed"
+      : "Seek Finance Approval";
+  const requiresSubsidyDisclosure =
+    litInvestment > bcTemplatePolicy.subsidyDisclosureThresholdUsd;
+  const guidance2 = requiresSubsidyDisclosure
+    ? "Disclosure of subsidised amount required"
+    : "No subsidy disclosure required";
+  const subsidyKes =
+    litInvestment > 0 && exchangeRateKesUsd > 0 ? litInvestment * exchangeRateKesUsd : 0;
+
+  return {
+    monthlyMrr,
+    monthlyMrc,
+    clientNrr,
+    nrc,
+    litInvestment,
+    capacityMbps,
+    monthlyOtherExpenses,
+    monthlyFreeCashFlow,
+    firstMonthNpv,
+    nrv,
+    tcv,
+    paybackMonths,
+    submittedPaybackMonths: Number.isFinite(paybackMonths)
+      ? Math.max(1, Math.ceil(paybackMonths))
+      : contractTermMonths + 1,
+    irr,
+    guidance1,
+    guidance2,
+    requiresSubsidyDisclosure,
+    subsidyKes,
+  };
+}
+
+function buildBcTemplateGuidanceDownload(metrics: ReturnType<typeof calculateExcelTemplateMetrics>) {
+  const lines = [
+    "Ordinary BC Template Guidance",
+    "",
+    "Fields to capture:",
+    "- Customer Name, Account Number, Opportunity Number, Account Manager",
+    "- Solution Architecture, Engineering, Contract Term, Project Executive Summary",
+    "- Per link: Link Name, Service, Technology, Onnet/Offnet, NRC, MRC, MRR, NRR, Capacity",
+    "- Attachments: LSO, BC template Excel, PBOQ/actual surveys, 3rd Party Quotes for offnet sites",
+    "",
+    "Template calculations:",
+    `NRR (USD): ${formatMetricDisplay(metrics.clientNrr)}`,
+    `NRC (USD): ${formatMetricDisplay(metrics.nrc)}`,
+    `LIT upfront investment (USD): ${formatMetricDisplay(metrics.litInvestment)}`,
+    `TCV (USD): ${formatMetricDisplay(metrics.tcv)}`,
+    `Payback: ${formatMetricDisplay(metrics.paybackMonths)} months`,
+    `IRR: ${formatMetricDisplay(metrics.irr)}%`,
+    `NRV (USD): ${formatMetricDisplay(metrics.nrv)}`,
+    "",
+    "Guidance:",
+    `Guidance 1: ${metrics.guidance1}`,
+    `Guidance 2: ${metrics.guidance2}`,
+  ];
+
+  if (metrics.requiresSubsidyDisclosure) {
+    lines.push(
+      "",
+      "LSO subsidy wording:",
+      "By signing this Service Order Form, you acknowledge that:",
+      `1. The installation charge has been discounted by an amount of KES ${formatMetricDisplay(metrics.subsidyKes, 0)}.`,
+      "2. The discount is on condition that you will not downgrade and/or terminate the Order before expiry of the Contract Term.",
+      "3. The discount amount shall be payable to Liquid immediately upon any such downgrade and/or early termination.",
+    );
   }
 
-  return String(Number(value.toFixed(decimalPlaces)));
-}
-
-function numberOrZero(value?: string) {
-  if (!value) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return lines.join("\n");
 }
 
 const bcFormTabs = ["details", "links", "metrics"] as const;
@@ -984,7 +1545,16 @@ export function PreparedBcForm({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [rows, setRows] = useState<LinkRowState[]>(() => buildInitialLinkRows(project));
+  const [otherExpenseRows, setOtherExpenseRows] = useState<OtherExpenseRowState[]>(() =>
+    buildInitialOtherExpenseRows(),
+  );
   const [contractTermMonths, setContractTermMonths] = useState(project.contractTermMonths || 12);
+  const [subsidyRequirement, setSubsidyRequirement] = useState(
+    String(project.subsidy ?? 0),
+  );
+  const [exchangeRateKesUsd, setExchangeRateKesUsd] = useState(
+    (project.exchangeRateKesUsd || bcTemplatePolicy.defaultExchangeRateKesUsd).toString(),
+  );
   const [activeTab, setActiveTab] = useState<BcFormTab>("details");
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
@@ -999,7 +1569,7 @@ export function PreparedBcForm({
 
         return buildPreparedBcDraft(form, activeTab, rows);
       },
-      deps: [activeTab, rows, project],
+      deps: [activeTab, rows, otherExpenseRows, project],
     });
   const savedDraft = restoredDraft;
 
@@ -1008,13 +1578,32 @@ export function PreparedBcForm({
       return;
     }
 
-    if (restoredDraft) {
-      setRows(buildInitialLinkRows(project, restoredDraft));
-      setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
-      setActiveTab(restoredDraft.activeTab ?? "details");
-    }
+    let cancelled = false;
 
-    setHasRestoredDraft(true);
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      if (restoredDraft) {
+        setRows(buildInitialLinkRows(project, restoredDraft));
+        setOtherExpenseRows(buildInitialOtherExpenseRows(restoredDraft));
+        setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
+        setSubsidyRequirement(String(restoredDraft.subsidy ?? project.subsidy ?? 0));
+        setExchangeRateKesUsd(
+          String(
+            restoredDraft.exchangeRateKesUsd ||
+              project.exchangeRateKesUsd ||
+              bcTemplatePolicy.defaultExchangeRateKesUsd,
+          ),
+        );
+        setActiveTab(restoredDraft.activeTab ?? "details");
+      }
+
+      setHasRestoredDraft(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [project, restoredDraft, isReady]);
   const pboqBudget = useMemo(
     () =>
@@ -1036,7 +1625,7 @@ export function PreparedBcForm({
         (totals, row) => ({
           mrc: totals.mrc + numberOrZero(row.mrc),
           mrr: totals.mrr + numberOrZero(row.mrr),
-          nrr: totals.nrr + calculateNrr(numberOrZero(row.mrr), numberOrZero(row.mrc)),
+          nrr: totals.nrr + numberOrZero(row.nrr),
           nrc:
             totals.nrc +
             nrcTotalFromParts({
@@ -1051,47 +1640,50 @@ export function PreparedBcForm({
     [rows],
   );
   const financialMetrics = useMemo(() => {
-    const paybackMonths = calculatePaybackMonths(revenueTotals.nrc, revenueTotals.nrr);
-    const submittedPaybackMonths = Number.isFinite(paybackMonths)
-      ? Math.max(1, Math.ceil(paybackMonths))
-      : contractTermMonths + 1;
-    const irr = calculateAnnualIrrPercentage(
-      revenueTotals.nrc,
-      revenueTotals.nrr,
+    const metrics = calculateExcelTemplateMetrics({
+      rows,
+      otherExpenseRows,
       contractTermMonths,
-    );
-    const decision = deriveDecision({
-      irr,
-      paybackMonths: submittedPaybackMonths,
-      subsidyRequirement: numberOrZero(String(savedDraft?.subsidy ?? project.subsidy ?? 0)),
-      capex: revenueTotals.nrc,
+      exchangeRateKesUsd: numberOrZero(exchangeRateKesUsd),
     });
-    const isAccepted =
-      revenueTotals.nrr > 0 &&
-      submittedPaybackMonths <= contractTermMonths &&
-      decision.decision !== "SEEK FINANCE APPROVAL";
+    const decision = deriveDecision({
+      irr: metrics.irr,
+      paybackMonths: metrics.submittedPaybackMonths,
+      subsidyRequirement: numberOrZero(subsidyRequirement),
+      capex: metrics.nrc,
+    });
 
     return {
-      irr,
-      paybackMonths,
-      submittedPaybackMonths,
-      nrv: revenueTotals.nrr * contractTermMonths,
-      tcv: revenueTotals.mrr * contractTermMonths,
-      decision,
-      isAccepted,
+      ...metrics,
+      decision: {
+        ...decision,
+        reason: `Guidance 1: ${metrics.guidance1}. Guidance 2: ${metrics.guidance2}.`,
+      },
+      isAccepted: metrics.guidance1 === "Proceed",
     };
   }, [
     contractTermMonths,
-    project.subsidy,
-    revenueTotals.mrr,
-    revenueTotals.nrc,
-    revenueTotals.nrr,
-    savedDraft?.subsidy,
+    exchangeRateKesUsd,
+    otherExpenseRows,
+    rows,
+    subsidyRequirement,
   ]);
+  const routesToSalesOperations = shouldRouteSubsidyToSalesOperations(
+    numberOrZero(subsidyRequirement),
+  );
+  const submitRouteLabel = routesToSalesOperations ? "Sales Ops" : "Finance";
 
   useEffect(() => {
     return bindFormAutoSave(formRef.current);
-  }, [bindFormAutoSave, isReady, activeTab, rows, contractTermMonths]);
+  }, [
+    bindFormAutoSave,
+    isReady,
+    activeTab,
+    rows,
+    otherExpenseRows,
+    contractTermMonths,
+    subsidyRequirement,
+  ]);
 
   function addRow() {
     setRows((current) => {
@@ -1131,25 +1723,63 @@ export function PreparedBcForm({
     );
   }
 
-  function updateRowRevenue(id: number, field: "mrc" | "mrr", value: string) {
+  function updateRowRevenue(id: number, field: "mrc" | "mrr" | "nrr", value: string) {
     setRows((current) =>
-      current.map((row) => {
-        if (row.id !== id) {
-          return row;
-        }
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
 
-        const nextRow = { ...row, [field]: value };
+  function updateRowCapacity(
+    id: number,
+    field: "onnetCapacity" | "offnetCapacity",
+    value: string,
+  ) {
+    setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
 
-        return {
-          ...nextRow,
-          nrr: String(calculateNrr(numberOrZero(nextRow.mrr), numberOrZero(nextRow.mrc))),
-        };
-      }),
+  function addOtherExpenseRow() {
+    setOtherExpenseRows((current) => [
+      ...current,
+      {
+        id: Date.now(),
+        label: "",
+        monthlyCost: "0",
+      },
+    ]);
+  }
+
+  function removeOtherExpenseRow(id: number) {
+    setOtherExpenseRows((current) =>
+      current.length === 1 ? current : current.filter((row) => row.id !== id),
+    );
+  }
+
+  function updateOtherExpenseRow(
+    id: number,
+    field: "label" | "monthlyCost",
+    value: string,
+  ) {
+    setOtherExpenseRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
     );
   }
 
   function handleSubmit() {
     clearDraft();
+  }
+
+  function downloadBcTemplateGuidance() {
+    const content = buildBcTemplateGuidanceDownload(financialMetrics);
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = bcTemplateGuidanceFileName;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   function goToNextTab() {
@@ -1261,15 +1891,18 @@ export function PreparedBcForm({
                     <option value="36">36 months</option>
                   </Select>
                 </Field>
-                <Field label="Attachments">
+                <Field label="">
+                <p className="text-xs font-normal text-[color:var(--color-muted)]">Attachment: LSO</p>
                   <FileUploadField
                     id="lsoAttachment"
                     name="lsoAttachment"
                     required
                     defaultFileName={savedDraft?.lsoAttachment?.name}
                   />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">Attachment: LSO</p>
-                
+                  
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                    Attachment: one or more prepared BC Excel sheets
+                  </p>
                   <FileUploadField
                     id="bcTemplate"
                     name="bcTemplate"
@@ -1278,20 +1911,19 @@ export function PreparedBcForm({
                     multiple
                     defaultFileName={bcTemplateFileNames(savedDraft)}
                   />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: one or more prepared BC Excel sheets
-                  </p>
+                  
                 </Field>
                 <Field label="Account Manager" required>
                   <Input name="accountManagerName" defaultValue={project.owner} readOnly required />
+                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
+                    Attachment: 3rd Party Quotes for offnet sites
+                  </p>
                   <FileUploadField
                     id="thirdPartyQuotesAttachment"
                     name="thirdPartyQuotesAttachment"
                     defaultFileName={savedDraft?.thirdPartyQuotesAttachment?.name}
                   />
-                  <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: 3rd Party Quotes for offnet sites
-                  </p>
+                  
                 </Field>
                 <Field label="Project Executive Summary" required>
                   <Textarea
@@ -1327,25 +1959,49 @@ export function PreparedBcForm({
                 </div>
 
                 <div className="overflow-x-auto rounded-md border border-[color:var(--color-border)]">
-                  <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] text-[11px] uppercase tracking-wide text-[color:var(--color-muted)]">
+                  <table className="w-full min-w-[92rem] table-fixed text-left text-sm">
+                    <colgroup>
+                      <col className="w-10" />
+                      <col className="w-[12rem]" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-[7rem]" />
+                      <col className="w-40" />
+                      <col className="w-36" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-28" />
+                      <col className="w-56" />
+                      <col className="w-14" />
+                    </colgroup>
+                    <thead className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
                       <tr>
                         {[
-                          { label: "#", required: false },
-                          { label: "Link Name", required: true },
-                          { label: "Service", required: true },
-                          { label: "Technology", required: true },
-                          { label: "Onnet / Offnet", required: true },
-                          { label: "PBOQ / Actual Survey Source", required: true },
-                          { label: "Capacity", required: false },
-                          { label: "MRC", required: false },
-                          { label: "MRR", required: true },
-                          { label: "NRR", required: false },
-                          { label: "Per-link Evidence", required: false },
-                          { label: "Action", required: false },
-                        ].map(({ label, required }) => (
-                          <th key={label} className="px-2 py-3 font-medium whitespace-nowrap">
-                            {label}
+                          { label: "#", required: false, thClass: "whitespace-nowrap" },
+                          { label: "Link name", required: true, thClass: "whitespace-normal leading-snug" },
+                          { label: "Service", required: true, thClass: "whitespace-nowrap" },
+                          { label: "Technology", required: true, thClass: "whitespace-nowrap" },
+                          { label: "Onnet / offnet", required: true, thClass: "whitespace-normal leading-snug" },
+                          {
+                            label: "PBOQ / survey / quote source",
+                            required: true,
+                            thClass: "whitespace-normal leading-snug",
+                          },
+                          { label: "Capacity", required: false, thClass: "whitespace-nowrap" },
+                          { label: "MRC", required: false, thClass: "whitespace-nowrap" },
+                          { label: "MRR", required: true, thClass: "whitespace-nowrap" },
+                          { label: "NRR", required: false, thClass: "whitespace-nowrap" },
+                          { label: "Per-link evidence", required: false, thClass: "whitespace-normal leading-snug" },
+                          { label: "Action", required: false, thClass: "whitespace-nowrap" },
+                        ].map(({ label, required, thClass }) => (
+                          <th
+                            key={label}
+                            className={cn(
+                              "px-2 py-3 align-bottom font-medium",
+                              thClass,
+                            )}
+                          >
+                            <span>{label}</span>
                             {required ? (
                               <span className="text-[color:var(--color-danger-text)]" aria-hidden="true">
                                 {" "}
@@ -1361,16 +2017,18 @@ export function PreparedBcForm({
                         const onnetOffnet = row.onnetOffnet ?? "Onnet";
 
                         return (
-                        <tr key={row.id}>
-                          <td className="px-2 py-2 text-[color:var(--color-muted)]">{index + 1}</td>
-                          <td className="px-2 py-2">
+                        <tr key={row.id} className="align-middle">
+                          <td className="align-middle px-2 py-2 text-center text-[color:var(--color-muted)] tabular-nums">
+                            {index + 1}
+                          </td>
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Input
                               name={`links[${index}][linkName]`}
                               defaultValue={row.linkName}
                               required
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][service]`}
                               defaultValue={row.service ?? "DIA"}
@@ -1382,14 +2040,14 @@ export function PreparedBcForm({
                               <option>DFA</option>
                             </Select>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Input
                               name={`links[${index}][technology]`}
                               defaultValue={row.technology ?? "Fiber"}
                               required
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][onnetOffnet]`}
                               value={onnetOffnet}
@@ -1405,7 +2063,7 @@ export function PreparedBcForm({
                               <option>Offnet</option>
                             </Select>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][costSource]`}
                               defaultValue={row.costSource ?? "PBOQ"}
@@ -1417,43 +2075,45 @@ export function PreparedBcForm({
                               <option>3rd Party Quote</option>
                             </Select>
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             {onnetOffnet === "Onnet" ? (
                               <>
-                                <Input
+                                <CapacityMbpsInput
                                   key={`${row.id}-onnet`}
                                   name={`links[${index}][onnetCapacity]`}
-                                  defaultValue={row.onnetCapacity}
-                                  placeholder="Onnet capacity"
+                                  value={row.onnetCapacity ?? ""}
+                                  onChange={(value) =>
+                                    updateRowCapacity(row.id, "onnetCapacity", value)
+                                  }
                                 />
                                 <input type="hidden" name={`links[${index}][offnetCapacity]`} value="" />
                               </>
                             ) : (
                               <>
-                                <Input
+                                <CapacityMbpsInput
                                   key={`${row.id}-offnet`}
                                   name={`links[${index}][offnetCapacity]`}
-                                  defaultValue={row.offnetCapacity}
-                                  placeholder="Offnet capacity"
+                                  value={row.offnetCapacity ?? ""}
+                                  onChange={(value) =>
+                                    updateRowCapacity(row.id, "offnetCapacity", value)
+                                  }
                                 />
                                 <input type="hidden" name={`links[${index}][onnetCapacity]`} value="" />
                               </>
                             )}
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             <Input
                               name={`links[${index}][mrc]`}
                               type="number"
                               inputMode="decimal"
                               step="0.01"
                               min="0"
-                              value={row.mrc ?? "0"}
-                              onChange={(event) =>
-                                updateRowRevenue(row.id, "mrc", event.currentTarget.value)
-                              }
+                              defaultValue={row.mrc ?? "0"}
+                              className="text-right tabular-nums"
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             <Input
                               name={`links[${index}][mrr]`}
                               type="number"
@@ -1461,32 +2121,33 @@ export function PreparedBcForm({
                               step="0.01"
                               min="0"
                               value={row.mrr ?? "0"}
+                              className="text-right tabular-nums"
                               onChange={(event) =>
                                 updateRowRevenue(row.id, "mrr", event.currentTarget.value)
                               }
                               required
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="min-w-0 align-middle px-2 py-2 text-right">
                             <Input
                               name={`links[${index}][nrr]`}
                               type="number"
                               inputMode="decimal"
                               step="0.01"
-                              value={formatMetricInput(
-                                calculateNrr(numberOrZero(row.mrr), numberOrZero(row.mrc)),
-                              )}
-                              readOnly
+                              min="0"
+                              defaultValue={row.nrr ?? "0"}
+                              className="text-right tabular-nums"
                             />
                           </td>
-                          <td className="px-2 py-2 min-w-[160px]">
+                          <td className="min-w-0 align-middle px-2 py-2">
                             <FileUploadField
                               id={`linkEvidence-${row.id}`}
                               name={`linkEvidence-${index}`}
                               defaultFileName={savedDraft?.linkEvidenceAttachments?.[index]?.name}
+                              className="w-full max-w-none"
                             />
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="align-middle px-2 py-2">
                             {rows.length > 1 ? (
                               <Button
                                 type="button"
@@ -1552,6 +2213,101 @@ export function PreparedBcForm({
                       : `PBOQ estimate: ${pboqBudget.toLocaleString("en-US")}`}
                   </p>
                 </div>
+                <div className="grid gap-3 md:col-span-3 md:grid-cols-4">
+                  {[
+                    { label: "Total MRR", value: revenueTotals.mrr },
+                    { label: "Total MRC", value: revenueTotals.mrc },
+                    { label: "Total NRR", value: revenueTotals.nrr },
+                    { label: "TCS / NRC", value: revenueTotals.nrc },
+                    { label: "Capacity Mbps", value: financialMetrics.capacityMbps },
+                    { label: "Other Expenses", value: financialMetrics.monthlyOtherExpenses },
+                    { label: "Payback", value: financialMetrics.paybackMonths, suffix: " months" },
+                    { label: "IRR", value: financialMetrics.irr, suffix: "%" },
+                    { label: "NRV", value: financialMetrics.nrv },
+                    { label: "TCV", value: financialMetrics.tcv },
+                  ].map(({ label, value, suffix }) => (
+                    <div
+                      key={label}
+                      className="rounded-md border border-[color:var(--color-border)] bg-white p-3"
+                    >
+                      <p className="text-xs font-medium uppercase tracking-wide text-[color:var(--color-muted)]">
+                        {label}
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-[color:var(--color-primary)]">
+                        {formatMetricDisplay(value)}
+                        {Number.isFinite(value) ? suffix : null}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border border-[color:var(--color-border)] bg-white p-4 md:col-span-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-sm">Other Expenses</CardTitle>
+                      <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                        Add monthly expenses that should reduce the BC free cash flow.
+                      </p>
+                    </div>
+                    <Button type="button" size="sm" variant="secondary" onClick={addOtherExpenseRow}>
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      Expense
+                    </Button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {otherExpenseRows.map((expense, index) => (
+                      <div
+                        key={expense.id}
+                        className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] p-3 md:grid-cols-[1fr_12rem_auto]"
+                      >
+                        <Field label="Expense name">
+                          <Input
+                            name={`otherExpenses[${index}][label]`}
+                            value={expense.label ?? ""}
+                            placeholder="e.g. support, hosting, permits"
+                            onChange={(event) =>
+                              updateOtherExpenseRow(expense.id, "label", event.currentTarget.value)
+                            }
+                          />
+                        </Field>
+                        <Field label="Monthly cost">
+                          <Input
+                            name={`otherExpenses[${index}][monthlyCost]`}
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={expense.monthlyCost ?? "0"}
+                            className="text-right tabular-nums"
+                            onChange={(event) =>
+                              updateOtherExpenseRow(
+                                expense.id,
+                                "monthlyCost",
+                                event.currentTarget.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <div className="flex items-end">
+                          {otherExpenseRows.length > 1 ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="warning"
+                              onClick={() => removeOtherExpenseRow(expense.id)}
+                              aria-label={`Remove other expense ${index + 1}`}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-[color:var(--color-primary)]">
+                    Monthly other expenses:{" "}
+                    {formatMetricDisplay(financialMetrics.monthlyOtherExpenses)}
+                  </p>
+                </div>
                 <Field label="BC Type" required>
                   <Select name="type" defaultValue={savedDraft?.type ?? project.type ?? "Ordinary BC"} required>
                     <option>Ordinary BC</option>
@@ -1607,7 +2363,8 @@ export function PreparedBcForm({
                     inputMode="decimal"
                     min="0"
                     step="0.01"
-                    defaultValue={savedDraft?.subsidy ?? project.subsidy ?? 0}
+                    value={subsidyRequirement}
+                    onChange={(event) => setSubsidyRequirement(event.currentTarget.value)}
                     required
                   />
                 </Field>
@@ -1627,7 +2384,6 @@ export function PreparedBcForm({
                     name="nrv"
                     type="number"
                     inputMode="decimal"
-                    min="0"
                     step="0.01"
                     value={formatMetricInput(financialMetrics.nrv)}
                     readOnly
@@ -1668,7 +2424,7 @@ export function PreparedBcForm({
                     Opportunity decision
                   </p>
                   <p className="mt-2 text-lg font-semibold">
-                    {financialMetrics.isAccepted ? "Accepted" : "Rejected"}
+                    {financialMetrics.isAccepted ? "Done" : "Pending"}
                   </p>
                   <p className="mt-1 text-[color:var(--color-muted-strong)]">
                     {financialMetrics.decision.reason}
@@ -1691,7 +2447,7 @@ export function PreparedBcForm({
             {isFinalTab ? (
               <FormSubmitButton pendingLabel="Submitting BC…">
                 <Save className="h-4 w-4" aria-hidden="true" />
-                Submit BC
+                Submit BC to {submitRouteLabel}
               </FormSubmitButton>
             ) : (
               <Button type="button" onClick={goToNextTab}>

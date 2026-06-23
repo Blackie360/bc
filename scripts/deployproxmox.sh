@@ -761,7 +761,16 @@ NGINX
 health_check() {
   log "Checking local app endpoint"
 
+
   curl -fsS "http://127.0.0.1:${INTERNAL_PORT}" >/dev/null || die "App did not respond on internal port ${INTERNAL_PORT}"
+ 
+
+  curl -fsS "http://127.0.0.1:${INTERNAL_PORT}" >/dev/null \
+
+     die "App did not respond on internal port ${INTERNAL_PORT}"
+
+ 
+
 
   if [[ "${ENABLE_NGINX}" == "true" ]]; then
     log "Checking Nginx endpoint"

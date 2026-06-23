@@ -32,6 +32,8 @@ const attachmentMetadataListSchema = z.array(attachmentMetadataSchema);
 export const pboqKickoffLinkDraftSchema = z.object({
   linkName: z.string().optional(),
   region: z.string().optional(),
+  siteCoordinates: z.string().optional(),
+  buildingName: z.string().optional(),
   service: z.enum(["EPL", "DIA", "DFA"]).optional(),
   capacity: z.string().optional(),
 });
@@ -55,6 +57,7 @@ export const pboqRequestDraftSchema = z.object({
 
 export const fiberPlanningLineDraftSchema = z.object({
   linkName: z.string().optional(),
+  siteCoordinates: z.string().optional(),
   material: z.string().optional(),
   build: z.string().optional(),
   wayleave: z.string().optional(),
@@ -87,6 +90,11 @@ export const preparedBcDraftLinkSchema = z.object({
   tcv: z.string().optional(),
 });
 
+export const preparedBcOtherExpenseDraftSchema = z.object({
+  label: z.string().optional(),
+  monthlyCost: z.string().optional(),
+});
+
 export const preparedBcDraftSchema = z.object({
   savedAt: z.string(),
   activeTab: z.enum(["details", "links", "metrics"]).optional(),
@@ -106,6 +114,7 @@ export const preparedBcDraftSchema = z.object({
   tcv: z.coerce.number().nonnegative().optional(),
   exchangeRateKesUsd: z.coerce.number().positive().optional(),
   links: z.array(preparedBcDraftLinkSchema).optional(),
+  otherExpenses: z.array(preparedBcOtherExpenseDraftSchema).optional(),
   lsoAttachment: attachmentMetadataSchema.optional(),
   bcTemplate: attachmentMetadataSchema.optional(),
   bcTemplates: attachmentMetadataListSchema.optional(),
