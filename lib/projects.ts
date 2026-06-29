@@ -20,7 +20,7 @@ import {
   linkCostSourceValues,
   linkOnnetOffnetValues,
 } from "@/lib/projects-types";
-import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
+// import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 
 export {
   encodeKickoffLinkNotes,
@@ -888,6 +888,11 @@ export function planningRoleForProject(project: ProjectRecord): Role | null {
   }
 
   return null;
+}
+
+export function shouldRouteSubsidyToSalesOperations(subsidyRequirement: number): boolean {
+  // TODO: confirm actual threshold/business rule with finance team
+  return subsidyRequirement > 0;
 }
 
 export function projectBelongsToRole(project: ProjectRecord, role: Role) {
