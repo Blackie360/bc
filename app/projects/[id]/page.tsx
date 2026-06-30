@@ -305,6 +305,7 @@ export default async function ProjectDetailPage({
                       <ul className="mt-2 space-y-2 text-sm">
                         {project.pboqRequest.costLines.map((line) => {
                           const kickoff = parseKickoffLinkNotes(line.notes);
+                          const siteCoordinates = line.siteCoordinates?.trim() || kickoff.siteCoordinates;
 
                           return (
                             <li key={line.id} className="flex flex-wrap items-center gap-2">
@@ -312,9 +313,9 @@ export default async function ProjectDetailPage({
                               {kickoff.region ? (
                                 <Badge>{kickoff.region}</Badge>
                               ) : null}
-                              {line.siteCoordinates ?? kickoff.siteCoordinates ? (
+                              {siteCoordinates ? (
                                 <span className="font-mono text-xs text-[color:var(--color-muted)]">
-                                  {line.siteCoordinates ?? kickoff.siteCoordinates}
+                                  {siteCoordinates}
                                 </span>
                               ) : null}
                               {kickoff.service ? (
@@ -370,57 +371,8 @@ export default async function ProjectDetailPage({
                 Select a Finance outcome and include the reason before routing the project.
               </p>
             </CardHeader>
-            <CardContent className="grid gap-3 p-4 md:grid-cols-2">
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Approved cases move to the Sales Operations validation queue."
-                decision="approve"
-                label="Approve"
-                notesLabel="Approval reason"
-                notesPlaceholder="Explain why Finance approved this project."
-                projectId={project.id}
-                variant="default"
-              />
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Rejected cases remain in the current Finance queue for follow-up."
-                decision="reject"
-                label="Reject"
-                notesLabel="Rejection reason"
-                notesPlaceholder="Explain why Finance rejected this project."
-                variant="warning"
-                projectId={project.id}
-              />
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Escalations move to the CFO queue for executive review."
-                decision="escalate-cfo"
-                label="Escalate to CFO"
-                notesLabel="Escalation reason"
-                notesPlaceholder="Explain why CFO escalation is needed."
-                variant="warning"
-                projectId={project.id}
-              />
-              {/* <FinanceDecisionForm
-              action={financeAction}
-              description="Escalate to CEO for executive judgement."
-              decision="escalate-ceo"
-              label="Escalate to CEO"
-              notesLabel="Escalation reason"
-              notesPlaceholder="Explain why CEO escalation is needed."
-              variant="warning"
-              projectId={project.id}
-              /> */}
-              <FinanceDecisionForm
-                action={financeAction}
-                description="Redirect with a question to Solutions Architecture."
-                decision="question-architect"
-                label="Redirect with Question"
-                notesLabel="Question for Solutions Architecture"
-                notesPlaceholder="Write the question for Solutions Architecture."
-                variant="warning"
-                projectId={project.id}
-              />
+            <CardContent className="p-4">
+              <FinanceDecisionForm action={financeAction} projectId={project.id} />
             </CardContent>
           </Card>
         ) : null}

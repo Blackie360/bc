@@ -90,6 +90,11 @@ export const preparedBcDraftLinkSchema = z.object({
   tcv: z.string().optional(),
 });
 
+export const preparedBcOtherExpenseDraftSchema = z.object({
+  label: z.string().optional(),
+  monthlyCost: z.string().optional(),
+});
+
 export const preparedBcDraftSchema = z.object({
   savedAt: z.string(),
   activeTab: z.enum(["details", "links", "metrics"]).optional(),
@@ -109,6 +114,7 @@ export const preparedBcDraftSchema = z.object({
   tcv: z.coerce.number().nonnegative().optional(),
   exchangeRateKesUsd: z.coerce.number().positive().optional(),
   links: z.array(preparedBcDraftLinkSchema).optional(),
+  otherExpenses: z.array(preparedBcOtherExpenseDraftSchema).optional(),
   lsoAttachment: attachmentMetadataSchema.optional(),
   bcTemplate: attachmentMetadataSchema.optional(),
   bcTemplates: attachmentMetadataListSchema.optional(),

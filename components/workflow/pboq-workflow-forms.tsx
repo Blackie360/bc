@@ -29,7 +29,9 @@ import {
   type PboqCostLineRecord,
 } from "@/lib/pboq-kickoff-links";
 import type { ProjectRecord } from "@/lib/project-record-types";
+import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 import { cn } from "@/lib/utils";
+import { deriveDecision } from "@/lib/workflow";
 
 const kenyaCounties = [
   "Baringo",
@@ -120,26 +122,35 @@ function RequiredFieldLegend() {
 function CapacityMbpsInput({
   name,
   defaultValue,
+  value,
+  onChange,
   required = false,
 }: {
   name: string;
   defaultValue?: string;
+  value?: string;
+  onChange?: (value: string) => void;
   required?: boolean;
 }) {
+  const inputValueProps =
+    value == null
+      ? { defaultValue: capacityMbpsInputValue(defaultValue) }
+      : { value, onChange: (event: ChangeEvent<HTMLInputElement>) => onChange?.(event.currentTarget.value) };
+
   return (
-    <div className="flex h-10 items-center overflow-hidden rounded-md border border-[color:var(--color-border)] bg-white">
+    <div className="flex h-10 min-w-[9rem] items-center overflow-hidden rounded-md border border-[color:var(--color-border)] bg-white">
       <Input
         name={name}
         type="number"
         inputMode="decimal"
         step="0.01"
         min="0.01"
-        defaultValue={capacityMbpsInputValue(defaultValue)}
         placeholder="1"
         required={required}
-        className="h-full border-0 text-right tabular-nums focus-visible:ring-0"
+        className="h-full min-w-0 flex-1 border-0 px-2 text-right tabular-nums focus-visible:ring-0"
+        {...inputValueProps}
       />
-      <span className="border-l border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 text-xs font-medium text-[color:var(--color-muted-strong)]">
+      <span className="shrink-0 border-l border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 text-xs font-medium text-[color:var(--color-muted-strong)]">
         Mbps
       </span>
     </div>
@@ -153,6 +164,7 @@ function FileUploadField({
   accept,
   defaultFileName,
   className,
+  multiple = false,
 }: {
   id: string;
   name: string;
@@ -160,6 +172,7 @@ function FileUploadField({
   accept?: string;
   defaultFileName?: string;
   className?: string;
+  multiple?: boolean;
 }) {
   const [fileName, setFileName] = useState(defaultFileName ?? "No file selected");
 
@@ -616,11 +629,12 @@ function buildFiberPlanningRowsFromCostLines(
   return costLines.map((line, index) => {
     const isKickoffNotes = line.notes?.startsWith(KICKOFF_LINK_NOTES_MARKER) ?? false;
     const kickoff = parseKickoffLinkNotes(line.notes);
+    const siteCoordinates = line.siteCoordinates?.trim() || kickoff.siteCoordinates;
 
     return {
       id: index + 1,
       linkName: line.linkName,
-      siteCoordinates: line.siteCoordinates ?? kickoff.siteCoordinates,
+      siteCoordinates,
       material: line.material > 0 ? String(line.material) : "",
       build: line.build > 0 ? String(line.build) : "",
       wayleave: line.wayleave > 0 ? String(line.wayleave) : "",
@@ -1039,6 +1053,11 @@ type LinkRowState = {
   mrr?: string;
   nrr?: string;
 };
+type OtherExpenseRowState = {
+  id: number;
+  label?: string;
+  monthlyCost?: string;
+};
 
 const bcTemplateGuidanceFileName = "ordinary-bc-template-guidance.txt";
 const bcTemplatePolicy = {
@@ -1099,8 +1118,8 @@ function mapDraftLinkToRow(
     technology: link.technology ?? "Fiber",
     onnetOffnet: link.onnetOffnet ?? "Onnet",
     costSource: link.costSource ?? "PBOQ",
-    onnetCapacity: link.onnetCapacity,
-    offnetCapacity: link.offnetCapacity,
+    onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
+    offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
     newBuildCost: link.newBuildCost,
     provisioningCost: link.provisioningCost,
     materialCost: link.materialCost,
@@ -1131,8 +1150,8 @@ function buildInitialLinkRows(
       technology: link.technology || defaultTechnology,
       onnetOffnet: link.onnetOffnet ?? "Onnet",
       costSource: link.costSource ?? defaultCostSource,
-      onnetCapacity: link.onnetCapacity ?? undefined,
-      offnetCapacity: link.offnetCapacity ?? undefined,
+      onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
+      offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
       newBuildCost: String(link.newBuildCost),
       provisioningCost: String(link.provisioningCost),
       materialCost: String(link.materialCost),
@@ -1169,7 +1188,7 @@ function buildInitialLinkRows(
       service: kickoff.service ?? project.requiredService ?? "DIA",
       technology: defaultTechnology,
       costSource: defaultCostSource,
-      onnetCapacity: kickoff.capacity ?? project.capacity ?? undefined,
+      onnetCapacity: capacityMbpsInputValue(kickoff.capacity ?? project.capacity),
       newBuildCost: String(line.build),
       materialCost: String(line.material),
       wayleaveCost: String(line.wayleave),
@@ -1177,6 +1196,18 @@ function buildInitialLinkRows(
       ...defaultRevenueForNewRow(project, costLines.length),
     };
   });
+}
+
+function buildInitialOtherExpenseRows(draft?: PreparedBcDraft | null): OtherExpenseRowState[] {
+  if (draft?.otherExpenses && draft.otherExpenses.length > 0) {
+    return draft.otherExpenses.map((expense, index) => ({
+      id: index + 1,
+      label: expense.label,
+      monthlyCost: expense.monthlyCost,
+    }));
+  }
+
+  return [{ id: 1, label: "", monthlyCost: "0" }];
 }
 
 function buildPreparedBcDraft(
@@ -1235,6 +1266,10 @@ function buildPreparedBcDraft(
       mrr: readFormFieldValue(form, `links[${index}][mrr]`) || row.mrr,
       nrr: readFormFieldValue(form, `links[${index}][nrr]`) || row.nrr,
     })),
+    otherExpenses: readIndexedFormRows<{
+      label?: string;
+      monthlyCost?: string;
+    }>(form, "otherExpenses", ["label", "monthlyCost"]),
   };
 }
 
@@ -1306,10 +1341,12 @@ function calculateIrrRate(cashFlows: number[]) {
 
 function calculateExcelTemplateMetrics({
   rows,
+  otherExpenseRows,
   contractTermMonths,
   exchangeRateKesUsd,
 }: {
   rows: LinkRowState[];
+  otherExpenseRows: OtherExpenseRowState[];
   contractTermMonths: number;
   exchangeRateKesUsd: number;
 }) {
@@ -1342,12 +1379,17 @@ function calculateExcelTemplateMetrics({
   const monthlyNetworkOpex = monthlyRevenue * bcTemplatePolicy.networkOpexRate;
   const monthlyLicenseFee = monthlyRevenue * bcTemplatePolicy.licenseFeeRate;
   const monthlyMinimumTax = monthlyRevenue * bcTemplatePolicy.minimumTaxRate;
+  const monthlyOtherExpenses = otherExpenseRows.reduce(
+    (total, expense) => total + numberOrZero(expense.monthlyCost),
+    0,
+  );
   const monthlyEbitda =
     monthlyGrossMargin -
     monthlyNetworkOpex -
     monthlyAdminExpenses -
     monthlyLicenseFee -
-    monthlyMinimumTax;
+    monthlyMinimumTax -
+    monthlyOtherExpenses;
   const monthlyDepreciation =
     litInvestment > 0
       ? litInvestment / (bcTemplatePolicy.depreciationYears * 12)
@@ -1411,6 +1453,7 @@ function calculateExcelTemplateMetrics({
     nrc,
     litInvestment,
     capacityMbps,
+    monthlyOtherExpenses,
     monthlyFreeCashFlow,
     firstMonthNpv,
     nrv,
@@ -1502,6 +1545,9 @@ export function PreparedBcForm({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [rows, setRows] = useState<LinkRowState[]>(() => buildInitialLinkRows(project));
+  const [otherExpenseRows, setOtherExpenseRows] = useState<OtherExpenseRowState[]>(() =>
+    buildInitialOtherExpenseRows(),
+  );
   const [contractTermMonths, setContractTermMonths] = useState(project.contractTermMonths || 12);
   const [subsidyRequirement, setSubsidyRequirement] = useState(
     String(project.subsidy ?? 0),
@@ -1523,7 +1569,7 @@ export function PreparedBcForm({
 
         return buildPreparedBcDraft(form, activeTab, rows);
       },
-      deps: [activeTab, rows, project],
+      deps: [activeTab, rows, otherExpenseRows, project],
     });
   const savedDraft = restoredDraft;
 
@@ -1539,6 +1585,16 @@ export function PreparedBcForm({
 
       if (restoredDraft) {
         setRows(buildInitialLinkRows(project, restoredDraft));
+        setOtherExpenseRows(buildInitialOtherExpenseRows(restoredDraft));
+        setContractTermMonths(restoredDraft.contractTermMonths ?? (project.contractTermMonths || 12));
+        setSubsidyRequirement(String(restoredDraft.subsidy ?? project.subsidy ?? 0));
+        setExchangeRateKesUsd(
+          String(
+            restoredDraft.exchangeRateKesUsd ||
+              project.exchangeRateKesUsd ||
+              bcTemplatePolicy.defaultExchangeRateKesUsd,
+          ),
+        );
         setActiveTab(restoredDraft.activeTab ?? "details");
       }
 
@@ -1586,6 +1642,7 @@ export function PreparedBcForm({
   const financialMetrics = useMemo(() => {
     const metrics = calculateExcelTemplateMetrics({
       rows,
+      otherExpenseRows,
       contractTermMonths,
       exchangeRateKesUsd: numberOrZero(exchangeRateKesUsd),
     });
@@ -1607,6 +1664,7 @@ export function PreparedBcForm({
   }, [
     contractTermMonths,
     exchangeRateKesUsd,
+    otherExpenseRows,
     rows,
     subsidyRequirement,
   ]);
@@ -1617,7 +1675,15 @@ export function PreparedBcForm({
 
   useEffect(() => {
     return bindFormAutoSave(formRef.current);
-  }, [bindFormAutoSave, isReady, activeTab, rows, contractTermMonths, subsidyRequirement]);
+  }, [
+    bindFormAutoSave,
+    isReady,
+    activeTab,
+    rows,
+    otherExpenseRows,
+    contractTermMonths,
+    subsidyRequirement,
+  ]);
 
   function addRow() {
     setRows((current) => {
@@ -1659,6 +1725,43 @@ export function PreparedBcForm({
 
   function updateRowRevenue(id: number, field: "mrc" | "mrr" | "nrr", value: string) {
     setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
+
+  function updateRowCapacity(
+    id: number,
+    field: "onnetCapacity" | "offnetCapacity",
+    value: string,
+  ) {
+    setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
+
+  function addOtherExpenseRow() {
+    setOtherExpenseRows((current) => [
+      ...current,
+      {
+        id: Date.now(),
+        label: "",
+        monthlyCost: "0",
+      },
+    ]);
+  }
+
+  function removeOtherExpenseRow(id: number) {
+    setOtherExpenseRows((current) =>
+      current.length === 1 ? current : current.filter((row) => row.id !== id),
+    );
+  }
+
+  function updateOtherExpenseRow(
+    id: number,
+    field: "label" | "monthlyCost",
+    value: string,
+  ) {
+    setOtherExpenseRows((current) =>
       current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
     );
   }
@@ -1978,13 +2081,10 @@ export function PreparedBcForm({
                                 <CapacityMbpsInput
                                   key={`${row.id}-onnet`}
                                   name={`links[${index}][onnetCapacity]`}
-                                  type="number"
-                                  inputMode="decimal"
-                                  step="any"
-                                  min="0"
-                                  defaultValue={row.onnetCapacity}
-                                  placeholder="e.g. 100"
-                                  className="text-right tabular-nums"
+                                  value={row.onnetCapacity ?? ""}
+                                  onChange={(value) =>
+                                    updateRowCapacity(row.id, "onnetCapacity", value)
+                                  }
                                 />
                                 <input type="hidden" name={`links[${index}][offnetCapacity]`} value="" />
                               </>
@@ -1993,13 +2093,10 @@ export function PreparedBcForm({
                                 <CapacityMbpsInput
                                   key={`${row.id}-offnet`}
                                   name={`links[${index}][offnetCapacity]`}
-                                  type="number"
-                                  inputMode="decimal"
-                                  step="any"
-                                  min="0"
-                                  defaultValue={row.offnetCapacity}
-                                  placeholder="e.g. 100"
-                                  className="text-right tabular-nums"
+                                  value={row.offnetCapacity ?? ""}
+                                  onChange={(value) =>
+                                    updateRowCapacity(row.id, "offnetCapacity", value)
+                                  }
                                 />
                                 <input type="hidden" name={`links[${index}][onnetCapacity]`} value="" />
                               </>
@@ -2029,7 +2126,6 @@ export function PreparedBcForm({
                                 updateRowRevenue(row.id, "mrr", event.currentTarget.value)
                               }
                               required
-                              className="text-right tabular-nums"
                             />
                           </td>
                           <td className="min-w-0 align-middle px-2 py-2 text-right">
@@ -2123,6 +2219,8 @@ export function PreparedBcForm({
                     { label: "Total MRC", value: revenueTotals.mrc },
                     { label: "Total NRR", value: revenueTotals.nrr },
                     { label: "TCS / NRC", value: revenueTotals.nrc },
+                    { label: "Capacity Mbps", value: financialMetrics.capacityMbps },
+                    { label: "Other Expenses", value: financialMetrics.monthlyOtherExpenses },
                     { label: "Payback", value: financialMetrics.paybackMonths, suffix: " months" },
                     { label: "IRR", value: financialMetrics.irr, suffix: "%" },
                     { label: "NRV", value: financialMetrics.nrv },
@@ -2141,6 +2239,74 @@ export function PreparedBcForm({
                       </p>
                     </div>
                   ))}
+                </div>
+                <div className="rounded-md border border-[color:var(--color-border)] bg-white p-4 md:col-span-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-sm">Other Expenses</CardTitle>
+                      <p className="mt-1 text-xs text-[color:var(--color-muted)]">
+                        Add monthly expenses that should reduce the BC free cash flow.
+                      </p>
+                    </div>
+                    <Button type="button" size="sm" variant="secondary" onClick={addOtherExpenseRow}>
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      Expense
+                    </Button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {otherExpenseRows.map((expense, index) => (
+                      <div
+                        key={expense.id}
+                        className="grid gap-3 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] p-3 md:grid-cols-[1fr_12rem_auto]"
+                      >
+                        <Field label="Expense name">
+                          <Input
+                            name={`otherExpenses[${index}][label]`}
+                            value={expense.label ?? ""}
+                            placeholder="e.g. support, hosting, permits"
+                            onChange={(event) =>
+                              updateOtherExpenseRow(expense.id, "label", event.currentTarget.value)
+                            }
+                          />
+                        </Field>
+                        <Field label="Monthly cost">
+                          <Input
+                            name={`otherExpenses[${index}][monthlyCost]`}
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={expense.monthlyCost ?? "0"}
+                            className="text-right tabular-nums"
+                            onChange={(event) =>
+                              updateOtherExpenseRow(
+                                expense.id,
+                                "monthlyCost",
+                                event.currentTarget.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <div className="flex items-end">
+                          {otherExpenseRows.length > 1 ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="warning"
+                              onClick={() => removeOtherExpenseRow(expense.id)}
+                              aria-label={`Remove other expense ${index + 1}`}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-[color:var(--color-primary)]">
+                    Monthly other expenses:{" "}
+                    {formatMetricDisplay(financialMetrics.monthlyOtherExpenses)}
+                  </p>
                 </div>
                 <Field label="BC Type" required>
                   <Select name="type" defaultValue={savedDraft?.type ?? project.type ?? "Ordinary BC"} required>

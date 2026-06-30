@@ -1,4 +1,18 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { deflateSync, inflateSync } from "node:zlib";
 import type { ProjectRecord } from "@/lib/project-record-types";
+
+type PdfObject = string | Buffer;
+
+type PdfLogoImage = {
+  width: number;
+  height: number;
+  rgb: Buffer;
+  alpha?: Buffer;
+};
+
+let cachedLogoImage: PdfLogoImage | null = null;
 
 function cleanPdfText(value: string | number | null | undefined) {
   return String(value ?? "")
@@ -96,6 +110,168 @@ function pdfRule(x: number, y: number, width: number, stroke: readonly [number, 
   return `q ${color(stroke)} RG 1 w ${x} ${y} m ${x + width} ${y} l S Q`;
 }
 
+function paethPredictor(left: number, up: number, upperLeft: number) {
+  const predictor = left + up - upperLeft;
+  const leftDistance = Math.abs(predictor - left);
+  const upDistance = Math.abs(predictor - up);
+  const upperLeftDistance = Math.abs(predictor - upperLeft);
+
+  if (leftDistance <= upDistance && leftDistance <= upperLeftDistance) {
+    return left;
+  }
+
+  return upDistance <= upperLeftDistance ? up : upperLeft;
+}
+
+function unfilterPngScanlines({
+  data,
+  width,
+  height,
+  channels,
+}: {
+  data: Buffer;
+  width: number;
+  height: number;
+  channels: number;
+}) {
+  const scanlineLength = width * channels;
+  const output = Buffer.alloc(scanlineLength * height);
+  let inputOffset = 0;
+
+  for (let row = 0; row < height; row += 1) {
+    const filter = data[inputOffset];
+    inputOffset += 1;
+    const rowOffset = row * scanlineLength;
+
+    for (let column = 0; column < scanlineLength; column += 1) {
+      const raw = data[inputOffset + column];
+      const left = column >= channels ? output[rowOffset + column - channels] : 0;
+      const up = row > 0 ? output[rowOffset + column - scanlineLength] : 0;
+      const upperLeft =
+        row > 0 && column >= channels
+          ? output[rowOffset + column - scanlineLength - channels]
+          : 0;
+
+      switch (filter) {
+        case 0:
+          output[rowOffset + column] = raw;
+          break;
+        case 1:
+          output[rowOffset + column] = (raw + left) & 0xff;
+          break;
+        case 2:
+          output[rowOffset + column] = (raw + up) & 0xff;
+          break;
+        case 3:
+          output[rowOffset + column] = (raw + Math.floor((left + up) / 2)) & 0xff;
+          break;
+        case 4:
+          output[rowOffset + column] = (raw + paethPredictor(left, up, upperLeft)) & 0xff;
+          break;
+        default:
+          throw new Error("Unsupported PNG filter type.");
+      }
+    }
+
+    inputOffset += scanlineLength;
+  }
+
+  return output;
+}
+
+function readLiquidLogoForPdf(): PdfLogoImage {
+  if (cachedLogoImage) {
+    return cachedLogoImage;
+  }
+
+  const png = readFileSync(join(process.cwd(), "public", "liquid-logo.png"));
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  const bitDepth = png[24];
+  const colorType = png[25];
+
+  if (bitDepth !== 8 || (colorType !== 2 && colorType !== 6)) {
+    throw new Error("Liquid logo PNG must be an 8-bit RGB or RGBA image.");
+  }
+
+  const idatChunks: Buffer[] = [];
+  let offset = 8;
+
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+
+    if (type === "IDAT") {
+      idatChunks.push(png.subarray(dataStart, dataEnd));
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  const channels = colorType === 6 ? 4 : 3;
+  const pixels = unfilterPngScanlines({
+    data: inflateSync(Buffer.concat(idatChunks)),
+    width,
+    height,
+    channels,
+  });
+  const rgb = Buffer.alloc(width * height * 3);
+  const alpha = colorType === 6 ? Buffer.alloc(width * height) : undefined;
+
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const source = pixel * channels;
+    const target = pixel * 3;
+
+    rgb[target] = pixels[source];
+    rgb[target + 1] = pixels[source + 1];
+    rgb[target + 2] = pixels[source + 2];
+
+    if (alpha) {
+      alpha[pixel] = pixels[source + 3];
+    }
+  }
+
+  cachedLogoImage = {
+    width,
+    height,
+    rgb: deflateSync(rgb),
+    alpha: alpha ? deflateSync(alpha) : undefined,
+  };
+
+  return cachedLogoImage;
+}
+
+function pdfImageCommand(name: string, x: number, y: number, width: number, height: number) {
+  return `q ${width} 0 0 ${height} ${x} ${y} cm /${name} Do Q`;
+}
+
+function pdfImageObject(image: PdfLogoImage, smaskObjectId?: number) {
+  const smask = smaskObjectId ? ` /SMask ${smaskObjectId} 0 R` : "";
+  const header = [
+    `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height}`,
+    `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode${smask}`,
+    `/Length ${image.rgb.length} >>\nstream\n`,
+  ].join(" ");
+
+  return Buffer.concat([Buffer.from(header, "utf8"), image.rgb, Buffer.from("\nendstream", "utf8")]);
+}
+
+function pdfAlphaMaskObject(image: PdfLogoImage) {
+  if (!image.alpha) {
+    return null;
+  }
+
+  const header = [
+    `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height}`,
+    `/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`,
+    `/Length ${image.alpha.length} >>\nstream\n`,
+  ].join(" ");
+
+  return Buffer.concat([Buffer.from(header, "utf8"), image.alpha, Buffer.from("\nendstream", "utf8")]);
+}
+
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
@@ -168,6 +344,9 @@ export function renderBcApprovalCertificatePdf(project: ProjectRecord) {
   const pageWidth = 612;
   const pageHeight = 792;
   const contentWidth = pageWidth - marginX * 2;
+  const logoImage = readLiquidLogoForPdf();
+  const logoDisplayWidth = 154;
+  const logoDisplayHeight = Math.round((logoDisplayWidth * logoImage.height) / logoImage.width);
 
   const colors = {
     primary: [0.05, 0.14, 0.28] as const,
@@ -183,18 +362,22 @@ export function renderBcApprovalCertificatePdf(project: ProjectRecord) {
   function startPage() {
     commands = [
       pdfRect(0, pageHeight - 92, pageWidth, 92, { fill: colors.primary }),
-      pdfRect(marginX, pageHeight - 76, 54, 42, { fill: colors.accent }),
-      pdfText("BC", marginX + 15, pageHeight - 62, {
-        size: 18,
-        font: "F2",
+      pdfRect(marginX, pageHeight - 78, logoDisplayWidth + 12, logoDisplayHeight + 12, {
         fill: colors.white,
       }),
-      pdfText("BUSINESS CASE APPROVAL CERTIFICATE", marginX + 70, pageHeight - 46, {
+      pdfImageCommand(
+        "Logo",
+        marginX + 6,
+        pageHeight - 72,
+        logoDisplayWidth,
+        logoDisplayHeight,
+      ),
+      pdfText("BUSINESS CASE APPROVAL CERTIFICATE", marginX + 186, pageHeight - 46, {
         size: 16,
         font: "F2",
         fill: colors.white,
       }),
-      pdfText("Approval workflow handoff and commercial summary", marginX + 70, pageHeight - 66, {
+      pdfText("Approval workflow handoff and commercial summary", marginX + 186, pageHeight - 66, {
         size: 9,
         fill: [0.78, 0.84, 0.92],
       }),
@@ -448,44 +631,62 @@ export function renderBcApprovalCertificatePdf(project: ProjectRecord) {
   addFooter();
 
   const pageContents = pages.map((pageCommands) => pageCommands.join("\n"));
+  const logoObjectId = 6;
+  const logoAlphaObject = pdfAlphaMaskObject(logoImage);
+  const firstPageObjectId = logoAlphaObject ? 8 : 7;
   const pageObjects = pageContents.flatMap((content, index) => {
-    const pageObjectId = 6 + index * 2;
+    const pageObjectId = firstPageObjectId + index * 2;
     const contentObjectId = pageObjectId + 1;
 
     return [
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> /XObject << /Logo ${logoObjectId} 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
       `<< /Length ${Buffer.byteLength(content, "utf8")} >>\nstream\n${content}\nendstream`,
     ];
   });
   const pageKids = pageContents
-    .map((_content, index) => `${6 + index * 2} 0 R`)
+    .map((_content, index) => `${firstPageObjectId + index * 2} 0 R`)
     .join(" ");
-  const objects = [
+  const imageObjects: PdfObject[] = [
+    pdfImageObject(logoImage, logoAlphaObject ? 7 : undefined),
+    ...(logoAlphaObject ? [logoAlphaObject] : []),
+  ];
+  const objects: PdfObject[] = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     `<< /Type /Pages /Kids [${pageKids}] /Count ${pageContents.length} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+    ...imageObjects,
     ...pageObjects,
   ];
 
-  let pdf = "%PDF-1.4\n";
+  const pdfChunks: Buffer[] = [Buffer.from("%PDF-1.4\n", "utf8")];
+  let pdfLength = pdfChunks[0].length;
   const offsets = [0];
 
   objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(pdf, "utf8"));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    const objectBuffer = Buffer.isBuffer(object) ? object : Buffer.from(object, "utf8");
+    const header = Buffer.from(`${index + 1} 0 obj\n`, "utf8");
+    const footer = Buffer.from("\nendobj\n", "utf8");
+
+    offsets.push(pdfLength);
+    pdfChunks.push(header, objectBuffer, footer);
+    pdfLength += header.length + objectBuffer.length + footer.length;
   });
 
-  const xrefOffset = Buffer.byteLength(pdf, "utf8");
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  pdf += offsets
-    .slice(1)
-    .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
-    .join("");
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
-  pdf += `startxref\n${xrefOffset}\n%%EOF\n`;
+  const xrefOffset = pdfLength;
+  const xref = [
+    `xref\n0 ${objects.length + 1}\n`,
+    "0000000000 65535 f \n",
+    offsets
+      .slice(1)
+      .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
+      .join(""),
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`,
+    `startxref\n${xrefOffset}\n%%EOF\n`,
+  ].join("");
 
-  return Buffer.from(pdf, "utf8");
+  pdfChunks.push(Buffer.from(xref, "utf8"));
+
+  return Buffer.concat(pdfChunks);
 }
