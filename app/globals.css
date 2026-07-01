@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 :root {
   --background: #f8fafc;
@@ -25,6 +27,10 @@
   --color-danger-surface: #fff1f2;
   --color-danger-border: #fecdd3;
   --color-danger-text: #be123c;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --border: #e2e8f0;
+  --radius: 0.625rem;
 }
 
 @theme inline {
@@ -32,6 +38,10 @@
   --color-foreground: var(--foreground);
   --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --radius-lg: var(--radius);
 }
 
 body {
