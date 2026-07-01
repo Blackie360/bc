@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { normalizeCapacityMbpsInput } from "@/lib/capacity";
+import {
+  normalizeProjectServiceType,
+  projectServiceTypeValues,
+  type ProjectServiceType,
+} from "@/lib/projects-types";
 
 export const KICKOFF_LINK_NOTES_MARKER = "kickoff:";
 
@@ -8,7 +13,7 @@ export const pboqKickoffLinkInputSchema = z.object({
   region: z.string().min(2),
   siteCoordinates: z.string().min(2),
   buildingName: z.string().min(2),
-  service: z.enum(["EPL", "DIA", "DFA"]),
+  service: z.enum(projectServiceTypeValues),
   capacity: z.string().min(1),
 });
 
@@ -46,8 +51,9 @@ export function encodeKickoffLinkNotes(link: {
     payload.buildingName = link.buildingName.trim();
   }
 
-  if (link.service) {
-    payload.service = link.service;
+  const service = normalizeProjectServiceType(link.service);
+  if (service) {
+    payload.service = service;
   }
 
   const capacity = normalizeCapacityMbpsInput(link.capacity);
@@ -68,7 +74,7 @@ export function parseKickoffLinkNotes(
   region?: string;
   siteCoordinates?: string;
   buildingName?: string;
-  service?: "EPL" | "DIA" | "DFA";
+  service?: ProjectServiceType;
   capacity?: string;
 } {
   if (!notes?.startsWith(KICKOFF_LINK_NOTES_MARKER)) {
@@ -84,17 +90,12 @@ export function parseKickoffLinkNotes(
       capacity?: string;
     };
 
-    const service =
-      parsed.service === "EPL" || parsed.service === "DIA" || parsed.service === "DFA"
-        ? parsed.service
-        : undefined;
-
     return {
       region: typeof parsed.region === "string" ? parsed.region : undefined,
       siteCoordinates:
         typeof parsed.siteCoordinates === "string" ? parsed.siteCoordinates : undefined,
       buildingName: typeof parsed.buildingName === "string" ? parsed.buildingName : undefined,
-      service,
+      service: normalizeProjectServiceType(parsed.service),
       capacity:
         typeof parsed.capacity === "string"
           ? normalizeCapacityMbpsInput(parsed.capacity) ?? undefined

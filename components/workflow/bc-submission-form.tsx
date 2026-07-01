@@ -2,8 +2,9 @@
 
 import { Plus, Save, Trash2 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
+import { CapacityMbpsInput } from "@/components/workflow/capacity-mbps-input";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +20,18 @@ import {
   type BcSubmissionDraft,
   type BcSubmissionLinkDraft,
 } from "@/lib/project-lifecycle-storage";
+import {
+  isThirdPartyLink,
+  normalizeLinkOnnetOffnet,
+  type LinkOnnetOffnet,
+} from "@/lib/projects-types";
+import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 import { cn } from "@/lib/utils";
 import { shouldRouteSubsidyToSalesOperations } from "@/lib/projects";
 
 type LinkRow = {
   id: number;
+  onnetOffnet?: LinkOnnetOffnet;
 } & BcSubmissionLinkDraft;
 
 function Field({
@@ -112,14 +120,24 @@ function numberOrZero(value?: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatMetricValue(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  return String(Number(value.toFixed(2)));
+}
+
 function buildRowsFromDraft(links?: BcSubmissionLinkDraft[]): LinkRow[] {
   if (!links || links.length === 0) {
-    return [{ id: 1 }];
+    return [{ id: 1, onnetOffnet: "Onnet" }];
   }
 
   return links.map((link, index) => ({
     id: index + 1,
     ...link,
+    onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
+    service: link.service === "DFA" ? "DF" : link.service,
   }));
 }
 
@@ -189,9 +207,13 @@ function buildBcSubmissionDraft(
       "tcv",
       "onnetCapacity",
       "offnetCapacity",
+      "providerName",
     ]),
     linkEvidenceAttachments: rows
       .map((_row, index) => readAttachment(`linkEvidence-${index}`))
+      .filter((attachment): attachment is NonNullable<typeof attachment> => Boolean(attachment)),
+    linkSupplierQuoteAttachments: rows
+      .map((_row, index) => readAttachment(`linkSupplierQuote-${index}`))
       .filter((attachment): attachment is NonNullable<typeof attachment> => Boolean(attachment)),
   };
 }
@@ -204,9 +226,10 @@ export function BcSubmissionForm({
   accountManagerDisplayName: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [rows, setRows] = useState<LinkRow[]>([{ id: 1 }]);
+  const [rows, setRows] = useState<LinkRow[]>([{ id: 1, onnetOffnet: "Onnet" }]);
   const [nrcParts, setNrcParts] = useState<Record<number, Record<string, string>>>({});
   const [subsidyRequirement, setSubsidyRequirement] = useState("");
+  const [contractTermMonths, setContractTermMonths] = useState("12");
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const { isReady, savedAtLabel, saveError, restoredDraft, clearDraft, bindFormAutoSave } =
     useFormLifecycleDraft({
@@ -239,6 +262,14 @@ export function BcSubmissionForm({
         setNrcParts(buildNrcPartsFromDraft(restoredDraft.links));
       }
 
+      if (restoredDraft?.contractTermMonths) {
+        setContractTermMonths(restoredDraft.contractTermMonths);
+      }
+
+      if (restoredDraft?.subsidy) {
+        setSubsidyRequirement(restoredDraft.subsidy);
+      }
+
       setHasRestoredDraft(true);
     });
 
@@ -251,8 +282,24 @@ export function BcSubmissionForm({
     return bindFormAutoSave(formRef.current);
   }, [bindFormAutoSave, isReady, rows, nrcParts]);
 
+  function updateRowOnnetOffnet(id: number, onnetOffnet: LinkOnnetOffnet) {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              onnetOffnet,
+              onnetCapacity: onnetOffnet === "Onnet" ? row.onnetCapacity : undefined,
+              offnetCapacity: onnetOffnet === "3rd Party" ? row.offnetCapacity : undefined,
+              providerName: onnetOffnet === "3rd Party" ? row.providerName : undefined,
+            }
+          : row,
+      ),
+    );
+  }
+
   function addRow() {
-    setRows((current) => [...current, { id: Date.now() }]);
+    setRows((current) => [...current, { id: Date.now(), onnetOffnet: "Onnet" }]);
   }
 
   function removeRow(id: number) {
@@ -276,6 +323,12 @@ export function BcSubmissionForm({
     }));
   }
 
+  function updateRowMetric(id: number, field: keyof BcSubmissionLinkDraft, value: string) {
+    setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
+
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     const submitter = (event.nativeEvent as SubmitEvent).submitter;
     const intent =
@@ -287,6 +340,30 @@ export function BcSubmissionForm({
       clearDraft();
     }
   }
+
+  const linkTotals = useMemo(
+    () =>
+      rows.reduce(
+        (totals, row) => ({
+          mrr: totals.mrr + numberOrZero(row.mrr),
+          mrc: totals.mrc + numberOrZero(row.mrc),
+          nrr: totals.nrr + numberOrZero(row.nrr),
+          nrc: totals.nrc + nrcTotal(nrcParts[row.id] ?? {}),
+          nrv: totals.nrv + numberOrZero(row.nrv),
+          tcv: totals.tcv + numberOrZero(row.tcv),
+        }),
+        { mrr: 0, mrc: 0, nrr: 0, nrc: 0, nrv: 0, tcv: 0 },
+      ),
+    [rows, nrcParts],
+  );
+  const computedCapex = formatMetricValue(linkTotals.nrc);
+  const computedNrv = formatMetricValue(linkTotals.nrv);
+  const computedTcv =
+    linkTotals.tcv > 0
+      ? formatMetricValue(linkTotals.tcv)
+      : formatMetricValue(
+          (linkTotals.mrr - linkTotals.mrc) * numberOrZero(contractTermMonths) + linkTotals.nrr,
+        );
 
   if (!isReady || !hasRestoredDraft) {
     return <p className="text-sm text-[color:var(--color-muted)]">Loading saved draft…</p>;
@@ -346,11 +423,6 @@ export function BcSubmissionForm({
             <div className="flex h-10 w-full items-center rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-3 text-sm text-[color:var(--color-muted-strong)]">
               {accountManagerDisplayName}
             </div>
-            <FileUploadField
-              id="thirdPartyQuotesAttachment"
-              name="thirdPartyQuotesAttachment"
-              defaultFileName={draft?.thirdPartyQuotesAttachment?.name}
-            />
           </Field>
           <Field label="Solution Architecture">
             <Input
@@ -369,7 +441,11 @@ export function BcSubmissionForm({
             />
           </Field>
           <Field label="Contract Term">
-            <Select name="contractTermMonths" defaultValue={draft?.contractTermMonths ?? "12"}>
+            <Select
+              name="contractTermMonths"
+              value={contractTermMonths}
+              onChange={(event) => setContractTermMonths(event.currentTarget.value)}
+            >
               <option value="12">12 months</option>
               <option value="24">24 months</option>
               <option value="36">36 months</option>
@@ -433,9 +509,11 @@ export function BcSubmissionForm({
               type="number"
               inputMode="decimal"
               step="0.01"
-              defaultValue={draft?.capex}
+              readOnly
+              value={computedCapex}
               required
             />
+            <FieldHint>Computed from total NRC across all links.</FieldHint>
           </Field>
           <Field label="Subsidy Requirement">
             <Input
@@ -465,9 +543,11 @@ export function BcSubmissionForm({
               inputMode="decimal"
               min="0"
               step="0.01"
-              defaultValue={draft?.nrv}
+              readOnly
+              value={computedNrv}
               required
             />
+            <FieldHint>Sum of per-link NRV values.</FieldHint>
           </Field>
           <Field label="TCV (USD)">
             <Input
@@ -476,9 +556,11 @@ export function BcSubmissionForm({
               inputMode="decimal"
               min="0"
               step="0.01"
-              defaultValue={draft?.tcv}
+              readOnly
+              value={computedTcv}
               required
             />
+            <FieldHint>Sum of per-link TCV, or (MRR − MRC) × term + NRR.</FieldHint>
           </Field>
           <Field label="Exchange Rate (KES/USD)">
             <Input
@@ -503,7 +585,11 @@ export function BcSubmissionForm({
           </Button>
         </CardHeader>
         <CardContent className="space-y-4 p-4">
-          {rows.map((row, index) => (
+          {rows.map((row, index) => {
+            const onnetOffnet = row.onnetOffnet ?? "Onnet";
+            const isThirdParty = isThirdPartyLink(onnetOffnet);
+
+            return (
             <div
               key={row.id}
               className="space-y-3 rounded-md border border-[color:var(--color-border)] p-3"
@@ -517,7 +603,8 @@ export function BcSubmissionForm({
                     <option>DIA</option>
                     <option>MPLS</option>
                     <option>EPL</option>
-                    <option>DFA</option>
+                    <option>DF</option>
+                    <option>Other Services</option>
                   </Select>
                 </Field>
                 <Field label="Technology">
@@ -527,14 +614,17 @@ export function BcSubmissionForm({
                     required
                   />
                 </Field>
-                <Field label="Onnet / Offnet">
+                <Field label="Onnet / 3rd Party">
                   <Select
                     name={`links[${index}][onnetOffnet]`}
-                    defaultValue={row.onnetOffnet ?? "Onnet"}
+                    value={onnetOffnet}
+                    onChange={(event) =>
+                      updateRowOnnetOffnet(row.id, event.currentTarget.value as LinkOnnetOffnet)
+                    }
                     required
                   >
                     <option>Onnet</option>
-                    <option>Offnet</option>
+                    <option>3rd Party</option>
                   </Select>
                 </Field>
                 <Field label="Source">
@@ -549,38 +639,67 @@ export function BcSubmissionForm({
                     <option>3rd Party Quote</option>
                   </Select>
                 </Field>
-                <Field label="Onnet Capacity">
-                  <Input
-                    name={`links[${index}][onnetCapacity]`}
-                    type="number"
-                    inputMode="decimal"
-                    step="any"
-                    min="0"
-                    defaultValue={row.onnetCapacity}
-                    placeholder="e.g. 100"
-                    className="text-right tabular-nums"
-                  />
-                </Field>
-                <Field label="Offnet Capacity">
-                  <Input
-                    name={`links[${index}][offnetCapacity]`}
-                    type="number"
-                    inputMode="decimal"
-                    step="any"
-                    min="0"
-                    defaultValue={row.offnetCapacity}
-                    placeholder="e.g. 100"
-                    className="text-right tabular-nums"
-                  />
-                </Field>
-                <Field label="Evidence">
-                  <FileUploadField
-                    id={`linkEvidence-${row.id}`}
-                    name={`linkEvidence-${index}`}
-                    required
-                    defaultFileName={draft?.linkEvidenceAttachments?.[index]?.name}
-                  />
-                </Field>
+                {isThirdParty ? (
+                  <Field label="Provider Name">
+                    <Input
+                      name={`links[${index}][providerName]`}
+                      defaultValue={row.providerName}
+                      required
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Onnet Capacity">
+                    <CapacityMbpsInput
+                      name={`links[${index}][onnetCapacity]`}
+                      defaultValue={row.onnetCapacity}
+                      placeholder="e.g. 100"
+                      step="any"
+                      min="0"
+                    />
+                  </Field>
+                )}
+                {isThirdParty ? (
+                  <Field label="3rd Party Capacity">
+                    <CapacityMbpsInput
+                      name={`links[${index}][offnetCapacity]`}
+                      defaultValue={row.offnetCapacity}
+                      placeholder="e.g. 100"
+                      step="any"
+                      min="0"
+                    />
+                    <input type="hidden" name={`links[${index}][onnetCapacity]`} value="" />
+                  </Field>
+                ) : (
+                  <input type="hidden" name={`links[${index}][offnetCapacity]`} value="" />
+                )}
+                {!isThirdParty ? (
+                  <Field label="Evidence">
+                    <FileUploadField
+                      id={`linkEvidence-${row.id}`}
+                      name={`linkEvidence-${index}`}
+                      required
+                      defaultFileName={draft?.linkEvidenceAttachments?.[index]?.name}
+                    />
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Supplier Quote">
+                      <FileUploadField
+                        id={`linkSupplierQuote-${row.id}`}
+                        name={`linkSupplierQuote-${index}`}
+                        required
+                        defaultFileName={draft?.linkSupplierQuoteAttachments?.[index]?.name}
+                      />
+                    </Field>
+                    <Field label="Supporting Evidence">
+                      <FileUploadField
+                        id={`linkEvidence-${row.id}`}
+                        name={`linkEvidence-${index}`}
+                        defaultFileName={draft?.linkEvidenceAttachments?.[index]?.name}
+                      />
+                    </Field>
+                  </>
+                )}
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 {[
@@ -620,7 +739,8 @@ export function BcSubmissionForm({
                     type="number"
                     step="0.01"
                     min="0"
-                    defaultValue={row.mrc}
+                    value={row.mrc ?? ""}
+                    onChange={(event) => updateRowMetric(row.id, "mrc", event.currentTarget.value)}
                     className="text-right tabular-nums"
                   />
                 </Field>
@@ -630,7 +750,8 @@ export function BcSubmissionForm({
                     type="number"
                     step="0.1"
                     min="0"
-                    defaultValue={row.mrr}
+                    value={row.mrr ?? ""}
+                    onChange={(event) => updateRowMetric(row.id, "mrr", event.currentTarget.value)}
                     className="text-right tabular-nums"
                     required
                   />
@@ -641,7 +762,8 @@ export function BcSubmissionForm({
                     type="number"
                     step="0.01"
                     min="0"
-                    defaultValue={row.nrr}
+                    value={row.nrr ?? ""}
+                    onChange={(event) => updateRowMetric(row.id, "nrr", event.currentTarget.value)}
                     className="text-right tabular-nums"
                   />
                 </Field>
@@ -651,7 +773,8 @@ export function BcSubmissionForm({
                     type="number"
                     step="0.01"
                     min="0"
-                    defaultValue={row.nrv}
+                    value={row.nrv ?? ""}
+                    onChange={(event) => updateRowMetric(row.id, "nrv", event.currentTarget.value)}
                   />
                 </Field>
                 <Field label="TCV(USD)">
@@ -660,7 +783,8 @@ export function BcSubmissionForm({
                     type="number"
                     step="0.01"
                     min="0"
-                    defaultValue={row.tcv}
+                    value={row.tcv ?? ""}
+                    onChange={(event) => updateRowMetric(row.id, "tcv", event.currentTarget.value)}
                   />
                 </Field>
               </div>
@@ -675,6 +799,32 @@ export function BcSubmissionForm({
                   Remove link
                 </Button>
               ) : null}
+            </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b border-[color:var(--color-border)] px-4 py-3">
+          <CardTitle className="text-sm">Link Totals</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 p-4 md:grid-cols-3 lg:grid-cols-6">
+          {(
+            [
+              ["MRR", linkTotals.mrr],
+              ["MRC", linkTotals.mrc],
+              ["NRR", linkTotals.nrr],
+              ["NRC", linkTotals.nrc],
+              ["NRV", linkTotals.nrv],
+              ["TCV", linkTotals.tcv],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="rounded-md border border-[color:var(--color-border)] p-3">
+              <p className="text-xs uppercase tracking-wide text-[color:var(--color-muted)]">{label}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-[color:var(--color-muted-strong)]">
+                {formatMetricValue(value)}
+              </p>
             </div>
           ))}
         </CardContent>

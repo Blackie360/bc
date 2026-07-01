@@ -593,7 +593,8 @@ export default async function ProjectDetailPage({
                         "Link",
                         "Service",
                         "Technology",
-                        "Onnet/Offnet",
+                        "Onnet/3rd Party",
+                        "Provider",
                         "Source",
                         "New Build",
                         "Provisioning",
@@ -604,8 +605,9 @@ export default async function ProjectDetailPage({
                         "MRR",
                         "NRR",
                         "Onnet Cap.",
-                        "Offnet Cap.",
+                        "3rd Party Cap.",
                         "Evidence",
+                        "Supplier Quote",
                       ].map((label) => (
                         <th key={label} className="px-3 py-3 font-medium">
                           {label}
@@ -620,6 +622,7 @@ export default async function ProjectDetailPage({
                         <td className="px-3 py-3">{link.service || "—"}</td>
                         <td className="px-3 py-3">{link.technology || "—"}</td>
                         <td className="px-3 py-3">{link.onnetOffnet ?? "—"}</td>
+                        <td className="px-3 py-3">{link.providerName || "—"}</td>
                         <td className="px-3 py-3">{link.costSource ?? "—"}</td>
                         <td className="px-3 py-3">{money(link.newBuildCost)}</td>
                         <td className="px-3 py-3">{money(link.provisioningCost)}</td>
@@ -634,6 +637,11 @@ export default async function ProjectDetailPage({
                         <td className="px-3 py-3">
                           <Badge variant={link.evidenceDocumentId ? "info" : "warning"}>
                             {link.evidenceDocumentId ? "Attached" : "Missing"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-3">
+                          <Badge variant={link.supplierQuoteDocumentId ? "info" : "warning"}>
+                            {link.supplierQuoteDocumentId ? "Attached" : "Missing"}
                           </Badge>
                         </td>
                       </tr>

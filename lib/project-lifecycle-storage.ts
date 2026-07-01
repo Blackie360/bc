@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { linkCostSourceValues, linkOnnetOffnetValues } from "@/lib/projects-types";
+import {
+  normalizeLinkOnnetOffnet,
+  linkCostSourceValues,
+  linkOnnetOffnetValues,
+  projectServiceTypeValues,
+} from "@/lib/projects-types";
 
 export const LIFECYCLE_STORAGE_VERSION = 1 as const;
 
@@ -34,7 +39,7 @@ export const pboqKickoffLinkDraftSchema = z.object({
   region: z.string().optional(),
   siteCoordinates: z.string().optional(),
   buildingName: z.string().optional(),
-  service: z.enum(["EPL", "DIA", "DFA"]).optional(),
+  service: z.enum(projectServiceTypeValues).optional(),
   capacity: z.string().optional(),
 });
 
@@ -48,7 +53,7 @@ export const pboqRequestDraftSchema = z.object({
   contractTermMonths: z.string().optional(),
   siteName: z.string().optional(),
   siteCoordinates: z.string().optional(),
-  requiredService: z.enum(["EPL", "DIA", "DFA"]).optional(),
+  requiredService: z.enum(projectServiceTypeValues).optional(),
   capacity: z.string().optional(),
   leadNetworkPlanner: z.string().optional(),
   region: z.string().optional(),
@@ -75,10 +80,16 @@ export const preparedBcDraftLinkSchema = z.object({
   linkName: z.string().optional(),
   service: z.string().optional(),
   technology: z.string().optional(),
-  onnetOffnet: z.enum(linkOnnetOffnetValues).optional(),
+  onnetOffnet: z
+    .preprocess(
+      (value) => normalizeLinkOnnetOffnet(typeof value === "string" ? value : undefined),
+      z.enum(linkOnnetOffnetValues),
+    )
+    .optional(),
   costSource: z.enum(linkCostSourceValues).optional(),
   onnetCapacity: z.string().optional(),
   offnetCapacity: z.string().optional(),
+  providerName: z.string().optional(),
   newBuildCost: z.string().optional(),
   provisioningCost: z.string().optional(),
   materialCost: z.string().optional(),
@@ -121,6 +132,7 @@ export const preparedBcDraftSchema = z.object({
   pboqOrSurveyAttachment: attachmentMetadataSchema.optional(),
   thirdPartyQuotesAttachment: attachmentMetadataSchema.optional(),
   linkEvidenceAttachments: z.array(attachmentMetadataSchema).optional(),
+  linkSupplierQuoteAttachments: z.array(attachmentMetadataSchema).optional(),
 });
 
 export const bcSubmissionLinkDraftSchema = preparedBcDraftLinkSchema.extend({
@@ -153,6 +165,7 @@ export const bcSubmissionDraftSchema = z.object({
   pboqOrSurveyAttachment: attachmentMetadataSchema.optional(),
   thirdPartyQuotesAttachment: attachmentMetadataSchema.optional(),
   linkEvidenceAttachments: z.array(attachmentMetadataSchema).optional(),
+  linkSupplierQuoteAttachments: z.array(attachmentMetadataSchema).optional(),
 });
 
 export const projectEditDraftSchema = z.object({

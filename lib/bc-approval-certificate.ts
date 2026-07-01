@@ -557,7 +557,7 @@ export function renderBcApprovalCertificatePdf(project: ProjectRecord) {
       );
       commands.push(
         pdfText(
-          `Onnet: ${link.onnetCapacity || "n/a"} | Offnet: ${link.offnetCapacity || "n/a"}`,
+          `Onnet: ${link.onnetCapacity || "n/a"} | 3rd Party: ${link.offnetCapacity || "n/a"}`,
           marginX + 355,
           y - 50,
           { size: 8, fill: colors.muted },
@@ -619,7 +619,7 @@ export function renderBcApprovalCertificatePdf(project: ProjectRecord) {
     ["3rd Party MRC", kes(thirdPartyMrc(project))],
     ["Exchange Rate (KES/USD)", exchangeRateLabel(project)],
     ["Onnet Capacity - Mbps", aggregateCapacity(project, "onnetCapacity")],
-    ["Offnet Capacity - Mbps", aggregateCapacity(project, "offnetCapacity")],
+    ["3rd Party Capacity - Mbps", aggregateCapacity(project, "offnetCapacity")],
   ]);
   renderLinkRows();
   sectionTitle("Distribution");

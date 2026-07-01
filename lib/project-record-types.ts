@@ -1,6 +1,10 @@
 import type { PreparedBcDraft } from "@/lib/project-lifecycle-storage";
 import type { PboqCostLineRecord } from "@/lib/pboq-kickoff-links";
-import type { LinkCostSource, LinkOnnetOffnet } from "@/lib/projects-types";
+import type {
+  LinkCostSource,
+  LinkOnnetOffnet,
+  ProjectRecordRequiredService,
+} from "@/lib/projects-types";
 import type {
   BusinessCaseType,
   DecisionOutput,
@@ -45,7 +49,9 @@ export type ProjectLinkRecord = {
   tcv: number;
   onnetCapacity: string | null;
   offnetCapacity: string | null;
+  providerName: string | null;
   evidenceDocumentId: string | null;
+  supplierQuoteDocumentId: string | null;
 };
 
 export type ProjectDocumentRecord = {
@@ -106,7 +112,7 @@ export type ProjectRecord = ProjectInput & {
   id: string;
   siteName: string;
   siteCoordinates: string;
-  requiredService: "EPL" | "DIA" | "DFA" | "Unspecified";
+  requiredService: ProjectRecordRequiredService;
   capacity: string;
   salesRequestor: string;
   leadNetworkPlanner: string;

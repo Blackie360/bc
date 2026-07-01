@@ -37,6 +37,10 @@ import {
   canEditProject,
   planningRoleForProject,
   updateProject,
+  isThirdPartyLink,
+  normalizeLinkOnnetOffnet,
+  normalizeProjectServiceType,
+  projectServiceTypeValues,
 } from "@/lib/projects";
 import { roleSlug, type Role } from "@/lib/workflow";
 
@@ -346,6 +350,7 @@ const linkFieldNames = [
   "tcv",
   "onnetCapacity",
   "offnetCapacity",
+  "providerName",
 ] as const;
 
 type LinkFieldName = (typeof linkFieldNames)[number];
@@ -412,8 +417,8 @@ function parsePboqRequestForm(formData: FormData): PboqRequestFormFields {
       throw new Error(`Link ${index + 1} requires a valid Mbps capacity.`);
     }
 
-    const service = link.service as PboqRequestInput["links"][number]["service"] | undefined;
-    if (service !== "EPL" && service !== "DIA" && service !== "DFA") {
+    const service = normalizeProjectServiceType(link.service);
+    if (!service || !projectServiceTypeValues.includes(service)) {
       throw new Error(`Link ${index + 1} requires a service.`);
     }
 
@@ -530,7 +535,15 @@ function existingPboqAttachment(formData: FormData, index: number, linkName: str
 
 function parsePreparedBcForm(formData: FormData): PreparedBcInput {
   const linkEvidenceAttachments: PreparedBcInput["linkEvidenceAttachments"] = [];
-  const links = parseLinks(formData, linkEvidenceAttachments, false, "PBOQ", true);
+  const linkSupplierQuoteAttachments: PreparedBcInput["linkSupplierQuoteAttachments"] = [];
+  const links = parseLinks(
+    formData,
+    linkEvidenceAttachments,
+    false,
+    "PBOQ",
+    true,
+    linkSupplierQuoteAttachments,
+  );
   const pboqOrSurveyType = textField(formData, "pboqOrSurveyType");
 
   return {
@@ -565,6 +578,7 @@ function parsePreparedBcForm(formData: FormData): PreparedBcInput {
       "CONTRACTOR_QUOTE",
     ),
     linkEvidenceAttachments,
+    linkSupplierQuoteAttachments,
   };
 }
 
@@ -689,6 +703,7 @@ function parseLinks(
   allowPartialRows = false,
   defaultEvidenceType: "PBOQ" | "ACTUAL_SURVEY_QUOTE" | "CONTRACTOR_QUOTE" = "ACTUAL_SURVEY_QUOTE",
   optionalLinkEvidence = false,
+  linkSupplierQuoteAttachments: PreparedBcInput["linkSupplierQuoteAttachments"] = [],
 ) {
   const rawRows = new Map<number, RawLinkRow>();
   const linkFieldPattern = /^links\[(\d+)]\[(\w+)]$/;
@@ -726,12 +741,14 @@ function parseLinks(
         nrcBreakdown.materialCost +
         nrcBreakdown.wayleaveCost;
       const parsedNrc = numberOrZero(row.nrc);
+      const onnetOffnet = normalizeLinkOnnetOffnet(row.onnetOffnet);
       const linkPayload = {
         linkName: row.linkName ?? (allowPartialRows ? `Draft link ${index + 1}` : ""),
         service: row.service ?? (allowPartialRows ? "Unspecified" : ""),
         technology: row.technology ?? (allowPartialRows ? "Unspecified" : ""),
-        onnetOffnet: (row.onnetOffnet ?? "Onnet") as BcSubmissionInput["links"][number]["onnetOffnet"],
+        onnetOffnet,
         costSource: (row.costSource ?? "PBOQ") as BcSubmissionInput["links"][number]["costSource"],
+        providerName: row.providerName?.trim() ?? "",
         ...nrcBreakdown,
         mrr: numberOrZero(row.mrr),
         mrc: numberOrZero(row.mrc),
@@ -742,6 +759,14 @@ function parseLinks(
         onnetCapacity: normalizeCapacityMbpsInput(row.onnetCapacity) ?? "",
         offnetCapacity: normalizeCapacityMbpsInput(row.offnetCapacity) ?? "",
       };
+
+      if (isThirdPartyLink(onnetOffnet) && !linkPayload.providerName) {
+        if (allowPartialRows) {
+          // Draft rows may omit provider details until complete.
+        } else {
+          throw new Error(`Link ${index + 1} requires a provider name for 3rd Party links.`);
+        }
+      }
 
       if (allowPartialRows) {
         const evidenceType =
@@ -759,9 +784,19 @@ function parseLinks(
           attachments.push(optionalEvidence);
         }
 
+        const supplierQuoteAttachment = attachSupplierQuoteAttachment(
+          formData,
+          index,
+          linkSupplierQuoteAttachments,
+          attachments,
+          optionalLinkEvidence,
+          false,
+        );
+
         return {
           ...linkPayload,
           ...(optionalEvidence ? { evidenceAttachmentIndex: attachments.length - 1 } : {}),
+          ...supplierQuoteAttachment,
         };
       }
 
@@ -786,8 +821,44 @@ function parseLinks(
           attachments.push(optionalEvidence);
         }
 
+        const supplierQuoteAttachment = attachSupplierQuoteAttachment(
+          formData,
+          index,
+          linkSupplierQuoteAttachments,
+          attachments,
+          optionalLinkEvidence,
+          isThirdPartyLink(onnetOffnet),
+        );
+
         return {
           ...linkPayload,
+          ...(optionalEvidence ? { evidenceAttachmentIndex: attachments.length - 1 } : {}),
+          ...supplierQuoteAttachment,
+        };
+      }
+
+      if (isThirdPartyLink(onnetOffnet)) {
+        const supplierQuoteAttachment = attachSupplierQuoteAttachment(
+          formData,
+          index,
+          linkSupplierQuoteAttachments,
+          attachments,
+          optionalLinkEvidence,
+          true,
+        );
+
+        const optionalEvidence = optionalFileAttachment(
+          formData,
+          `linkEvidence-${index}`,
+          evidenceType,
+        );
+        if (optionalEvidence) {
+          attachments.push(optionalEvidence);
+        }
+
+        return {
+          ...linkPayload,
+          ...supplierQuoteAttachment,
           ...(optionalEvidence ? { evidenceAttachmentIndex: attachments.length - 1 } : {}),
         };
       }
@@ -807,6 +878,49 @@ function parseLinks(
         evidenceAttachmentIndex,
       };
     });
+}
+
+function attachSupplierQuoteAttachment(
+  formData: FormData,
+  index: number,
+  linkSupplierQuoteAttachments: PreparedBcInput["linkSupplierQuoteAttachments"],
+  attachments: Array<BcSubmissionInput["attachments"][number]>,
+  useSeparateSupplierQuoteStore: boolean,
+  required: boolean,
+) {
+  const targetAttachments = useSeparateSupplierQuoteStore
+    ? linkSupplierQuoteAttachments
+    : attachments;
+
+  if (required) {
+    const supplierQuoteAttachmentIndex = targetAttachments.length;
+    targetAttachments.push(
+      fileAttachment(
+        formData,
+        `linkSupplierQuote-${index}`,
+        "CONTRACTOR_QUOTE",
+        "Supplier quote is required for 3rd Party links.",
+      ),
+    );
+
+    return { supplierQuoteAttachmentIndex };
+  }
+
+  const optionalQuote = optionalFileAttachment(
+    formData,
+    `linkSupplierQuote-${index}`,
+    "CONTRACTOR_QUOTE",
+  );
+
+  if (!optionalQuote) {
+    return {};
+  }
+
+  targetAttachments.push(optionalQuote);
+
+  return {
+    supplierQuoteAttachmentIndex: targetAttachments.length - 1,
+  };
 }
 
 function hasLinkPricing(row: RawLinkRow) {

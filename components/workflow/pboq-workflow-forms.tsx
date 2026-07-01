@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { CapacityMbpsInput } from "@/components/workflow/capacity-mbps-input";
 import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
 import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
 import { capacityMbpsInputValue, capacityMbpsNumber } from "@/lib/capacity";
@@ -29,6 +30,13 @@ import {
   type PboqCostLineRecord,
 } from "@/lib/pboq-kickoff-links";
 import type { ProjectRecord } from "@/lib/project-record-types";
+import {
+  isThirdPartyLink,
+  normalizeLinkOnnetOffnet,
+  normalizeProjectServiceType,
+  type LinkOnnetOffnet,
+  type ProjectServiceType,
+} from "@/lib/projects-types";
 import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 import { cn } from "@/lib/utils";
 import { deriveDecision } from "@/lib/workflow";
@@ -119,44 +127,6 @@ function RequiredFieldLegend() {
   );
 }
 
-function CapacityMbpsInput({
-  name,
-  defaultValue,
-  value,
-  onChange,
-  required = false,
-}: {
-  name: string;
-  defaultValue?: string;
-  value?: string;
-  onChange?: (value: string) => void;
-  required?: boolean;
-}) {
-  const inputValueProps =
-    value == null
-      ? { defaultValue: capacityMbpsInputValue(defaultValue) }
-      : { value, onChange: (event: ChangeEvent<HTMLInputElement>) => onChange?.(event.currentTarget.value) };
-
-  return (
-    <div className="flex h-10 min-w-[9rem] items-center overflow-hidden rounded-md border border-[color:var(--color-border)] bg-white">
-      <Input
-        name={name}
-        type="number"
-        inputMode="decimal"
-        step="0.01"
-        min="0.01"
-        placeholder="1"
-        required={required}
-        className="h-full min-w-0 flex-1 border-0 px-2 text-right tabular-nums focus-visible:ring-0"
-        {...inputValueProps}
-      />
-      <span className="shrink-0 border-l border-[color:var(--color-border)] bg-[color:var(--color-surface-soft)] px-2 text-xs font-medium text-[color:var(--color-muted-strong)]">
-        Mbps
-      </span>
-    </div>
-  );
-}
-
 function FileUploadField({
   id,
   name,
@@ -231,7 +201,7 @@ type KickoffLinkRow = Row & {
   region?: string;
   siteCoordinates?: string;
   buildingName?: string;
-  service?: "EPL" | "DIA" | "DFA";
+  service?: ProjectServiceType;
   capacity?: string;
 };
 
@@ -267,10 +237,15 @@ function cellText(value: unknown) {
 }
 
 function importedService(value: string): KickoffLinkRow["service"] {
-  const normalized = value.trim().toUpperCase();
+  const normalized = normalizeProjectServiceType(value.trim().toUpperCase());
 
-  if (normalized === "EPL" || normalized === "DIA" || normalized === "DFA") {
+  if (normalized) {
     return normalized;
+  }
+
+  const compact = value.trim().toUpperCase().replace(/[^A-Z]/g, "");
+  if (compact === "OTHERSERVICES" || compact === "OTHER") {
+    return "Other Services";
   }
 
   return "EPL";
@@ -581,7 +556,8 @@ export function PboqRequestForm({
                       >
                         <option value="EPL">EPL</option>
                         <option value="DIA">DIA</option>
-                        <option value="DFA">DFA</option>
+                        <option value="DF">DF</option>
+                        <option value="Other Services">Other Services</option>
                       </Select>
                     </td>
                     <td className="px-2 py-2">
@@ -1041,10 +1017,11 @@ type LinkRowState = {
   linkName?: string;
   service?: string;
   technology?: string;
-  onnetOffnet?: "Onnet" | "Offnet";
+  onnetOffnet?: LinkOnnetOffnet;
   costSource?: "PBOQ" | "Fibre Ready" | "Actual Survey" | "3rd Party Quote";
   onnetCapacity?: string;
   offnetCapacity?: string;
+  providerName?: string;
   newBuildCost?: string;
   provisioningCost?: string;
   materialCost?: string;
@@ -1116,10 +1093,11 @@ function mapDraftLinkToRow(
     linkName: link.linkName,
     service: link.service ?? "DIA",
     technology: link.technology ?? "Fiber",
-    onnetOffnet: link.onnetOffnet ?? "Onnet",
+    onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
     costSource: link.costSource ?? "PBOQ",
     onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
     offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
+    providerName: link.providerName,
     newBuildCost: link.newBuildCost,
     provisioningCost: link.provisioningCost,
     materialCost: link.materialCost,
@@ -1148,10 +1126,11 @@ function buildInitialLinkRows(
       linkName: link.linkName,
       service: link.service || "DIA",
       technology: link.technology || defaultTechnology,
-      onnetOffnet: link.onnetOffnet ?? "Onnet",
+      onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
       costSource: link.costSource ?? defaultCostSource,
       onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
       offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
+      providerName: link.providerName ?? undefined,
       newBuildCost: String(link.newBuildCost),
       provisioningCost: String(link.provisioningCost),
       materialCost: String(link.materialCost),
@@ -1250,6 +1229,9 @@ function buildPreparedBcDraft(
     linkEvidenceAttachments: rows
       .map((_row, index) => readAttachment(`linkEvidence-${index}`))
       .filter((attachment): attachment is NonNullable<typeof attachment> => Boolean(attachment)),
+    linkSupplierQuoteAttachments: rows
+      .map((_row, index) => readAttachment(`linkSupplierQuote-${index}`))
+      .filter((attachment): attachment is NonNullable<typeof attachment> => Boolean(attachment)),
     links: rows.map((row, index) => ({
       linkName: readFormFieldValue(form, `links[${index}][linkName]`) || row.linkName,
       service: readFormFieldValue(form, `links[${index}][service]`) || row.service,
@@ -1258,6 +1240,7 @@ function buildPreparedBcDraft(
       costSource: readFormFieldValue(form, `links[${index}][costSource]`) as LinkRowState["costSource"],
       onnetCapacity: readFormFieldValue(form, `links[${index}][onnetCapacity]`) || row.onnetCapacity,
       offnetCapacity: readFormFieldValue(form, `links[${index}][offnetCapacity]`) || row.offnetCapacity,
+      providerName: readFormFieldValue(form, `links[${index}][providerName]`) || row.providerName,
       newBuildCost: row.newBuildCost,
       provisioningCost: row.provisioningCost,
       materialCost: row.materialCost,
@@ -1365,7 +1348,7 @@ function calculateExcelTemplateMetrics({
     0,
   );
   const capacityMbps = rows.reduce((total, row) => {
-    const capacity = row.onnetOffnet === "Offnet" ? row.offnetCapacity : row.onnetCapacity;
+    const capacity = isThirdPartyLink(row.onnetOffnet) ? row.offnetCapacity : row.onnetCapacity;
     return total + capacityMbpsNumber(capacity);
   }, 0);
   const litInvestment = nrc - clientNrr;
@@ -1477,8 +1460,8 @@ function buildBcTemplateGuidanceDownload(metrics: ReturnType<typeof calculateExc
     "Fields to capture:",
     "- Customer Name, Account Number, Opportunity Number, Account Manager",
     "- Solution Architecture, Engineering, Contract Term, Project Executive Summary",
-    "- Per link: Link Name, Service, Technology, Onnet/Offnet, NRC, MRC, MRR, NRR, Capacity",
-    "- Attachments: LSO, BC template Excel, PBOQ/actual surveys, 3rd Party Quotes for offnet sites",
+    "- Per link: Link Name, Service, Technology, Onnet/3rd Party, NRC, MRC, MRR, NRR, Capacity",
+    "- Attachments: LSO, BC template Excel, PBOQ/actual surveys, supplier quotes for 3rd Party links",
     "",
     "Template calculations:",
     `NRR (USD): ${formatMetricDisplay(metrics.clientNrr)}`,
@@ -1708,7 +1691,7 @@ export function PreparedBcForm({
     setRows((current) => (current.length === 1 ? current : current.filter((row) => row.id !== id)));
   }
 
-  function updateRowOnnetOffnet(id: number, onnetOffnet: "Onnet" | "Offnet") {
+  function updateRowOnnetOffnet(id: number, onnetOffnet: LinkOnnetOffnet) {
     setRows((current) =>
       current.map((row) =>
         row.id === id
@@ -1716,7 +1699,8 @@ export function PreparedBcForm({
               ...row,
               onnetOffnet,
               onnetCapacity: onnetOffnet === "Onnet" ? row.onnetCapacity : undefined,
-              offnetCapacity: onnetOffnet === "Offnet" ? row.offnetCapacity : undefined,
+              offnetCapacity: onnetOffnet === "3rd Party" ? row.offnetCapacity : undefined,
+              providerName: onnetOffnet === "3rd Party" ? row.providerName : undefined,
             }
           : row,
       ),
@@ -1916,7 +1900,7 @@ export function PreparedBcForm({
                 <Field label="Account Manager" required>
                   <Input name="accountManagerName" defaultValue={project.owner} readOnly required />
                   <p className="text-xs font-normal text-[color:var(--color-muted)]">
-                    Attachment: 3rd Party Quotes for offnet sites
+                    Attachment: optional bundled 3rd Party quotes
                   </p>
                   <FileUploadField
                     id="thirdPartyQuotesAttachment"
@@ -1981,7 +1965,12 @@ export function PreparedBcForm({
                           { label: "Link name", required: true, thClass: "whitespace-normal leading-snug" },
                           { label: "Service", required: true, thClass: "whitespace-nowrap" },
                           { label: "Technology", required: true, thClass: "whitespace-nowrap" },
-                          { label: "Onnet / offnet", required: true, thClass: "whitespace-normal leading-snug" },
+                          { label: "Onnet / 3rd Party", required: true, thClass: "whitespace-normal leading-snug" },
+                          {
+                            label: "Provider",
+                            required: false,
+                            thClass: "whitespace-normal leading-snug",
+                          },
                           {
                             label: "PBOQ / survey / quote source",
                             required: true,
@@ -1992,6 +1981,7 @@ export function PreparedBcForm({
                           { label: "MRR", required: true, thClass: "whitespace-nowrap" },
                           { label: "NRR", required: false, thClass: "whitespace-nowrap" },
                           { label: "Per-link evidence", required: false, thClass: "whitespace-normal leading-snug" },
+                          { label: "Supplier quote", required: false, thClass: "whitespace-normal leading-snug" },
                           { label: "Action", required: false, thClass: "whitespace-nowrap" },
                         ].map(({ label, required, thClass }) => (
                           <th
@@ -2015,6 +2005,7 @@ export function PreparedBcForm({
                     <tbody className="divide-y divide-[color:var(--color-border)]">
                       {rows.map((row, index) => {
                         const onnetOffnet = row.onnetOffnet ?? "Onnet";
+                        const isThirdParty = isThirdPartyLink(onnetOffnet);
 
                         return (
                         <tr key={row.id} className="align-middle">
@@ -2037,7 +2028,8 @@ export function PreparedBcForm({
                               <option>DIA</option>
                               <option>MPLS</option>
                               <option>EPL</option>
-                              <option>DFA</option>
+                              <option>DF</option>
+                              <option>Other Services</option>
                             </Select>
                           </td>
                           <td className="min-w-0 align-middle px-2 py-2">
@@ -2054,14 +2046,26 @@ export function PreparedBcForm({
                               onChange={(event) =>
                                 updateRowOnnetOffnet(
                                   row.id,
-                                  event.currentTarget.value as "Onnet" | "Offnet",
+                                  event.currentTarget.value as LinkOnnetOffnet,
                                 )
                               }
                               required
                             >
                               <option>Onnet</option>
-                              <option>Offnet</option>
+                              <option>3rd Party</option>
                             </Select>
+                          </td>
+                          <td className="min-w-0 align-middle px-2 py-2">
+                            {isThirdParty ? (
+                              <Input
+                                name={`links[${index}][providerName]`}
+                                defaultValue={row.providerName}
+                                placeholder="Provider name"
+                                required
+                              />
+                            ) : (
+                              <span className="text-xs text-[color:var(--color-muted)]">—</span>
+                            )}
                           </td>
                           <td className="min-w-0 align-middle px-2 py-2">
                             <Select
@@ -2146,6 +2150,19 @@ export function PreparedBcForm({
                               defaultFileName={savedDraft?.linkEvidenceAttachments?.[index]?.name}
                               className="w-full max-w-none"
                             />
+                          </td>
+                          <td className="min-w-0 align-middle px-2 py-2">
+                            {isThirdParty ? (
+                              <FileUploadField
+                                id={`linkSupplierQuote-${row.id}`}
+                                name={`linkSupplierQuote-${index}`}
+                                required
+                                defaultFileName={savedDraft?.linkSupplierQuoteAttachments?.[index]?.name}
+                                className="w-full max-w-none"
+                              />
+                            ) : (
+                              <span className="text-xs text-[color:var(--color-muted)]">—</span>
+                            )}
                           </td>
                           <td className="align-middle px-2 py-2">
                             {rows.length > 1 ? (
