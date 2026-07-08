@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clearLifecycleStage,
   formatDraftSavedAt,
@@ -9,6 +9,7 @@ import {
   type LifecycleStage,
   type LifecycleStageDraftMap,
 } from "@/lib/project-lifecycle-storage";
+import { notifyDraftRestored, notifyDraftSaved, notifyDraftSaveError } from "@/lib/toast";
 
 type UseFormLifecycleDraftOptions<S extends LifecycleStage> = {
   scopeKey: string;
@@ -43,6 +44,8 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
   const [restoredDraft, setRestoredDraft] = useState<LifecycleStageDraftMap[S] | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const hasNotifiedRestoreRef = useRef(false);
+  const persistCountRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +62,11 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
       setRestoredDraft(draft);
       setSavedAt(draft?.savedAt ?? null);
       setIsReady(true);
+
+      if (draft?.savedAt && !hasNotifiedRestoreRef.current) {
+        hasNotifiedRestoreRef.current = true;
+        notifyDraftRestored(formatDraftSavedAt(draft.savedAt));
+      }
     });
 
     return () => {
@@ -66,21 +74,27 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
     };
   }, [enabled, scopeKey, stage]);
 
+  const persistDraft = useCallback(() => {
+    try {
+      const draft = buildDraft();
+      mergeProjectLifecycleStage(scopeKey, stage, draft);
+      setSavedAt(draft.savedAt);
+      setSaveError(null);
+      persistCountRef.current += 1;
+      if (persistCountRef.current > 1) {
+        notifyDraftSaved(formatDraftSavedAt(draft.savedAt));
+      }
+    } catch {
+      const message = "Draft could not be saved.";
+      setSaveError(message);
+      notifyDraftSaveError(message);
+    }
+  }, [buildDraft, scopeKey, stage]);
+
   useEffect(() => {
     if (!enabled || !isReady) return;
 
     let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    function persistDraft() {
-      try {
-        const draft = buildDraft();
-        mergeProjectLifecycleStage(scopeKey, stage, draft);
-        setSavedAt(draft.savedAt);
-        setSaveError(null);
-      } catch {
-        setSaveError("Draft could not be saved.");
-      }
-    }
 
     function scheduleSave() {
       if (timeout) clearTimeout(timeout);
@@ -92,25 +106,13 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
     return () => {
       if (timeout) clearTimeout(timeout);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- caller controls draft rebuild inputs
-  }, [buildDraft, debounceMs, enabled, isReady, scopeKey, stage, ...deps]);
+  }, [debounceMs, enabled, isReady, persistDraft, ...deps]);
 
   const bindFormAutoSave = useCallback(
     (form: HTMLFormElement | null) => {
       if (!enabled || !form) return () => {};
 
       let timeout: ReturnType<typeof setTimeout> | undefined;
-
-      function persistDraft() {
-        try {
-          const draft = buildDraft();
-          mergeProjectLifecycleStage(scopeKey, stage, draft);
-          setSavedAt(draft.savedAt);
-          setSaveError(null);
-        } catch {
-          setSaveError("Draft could not be saved.");
-        }
-      }
 
       function scheduleSave() {
         if (timeout) clearTimeout(timeout);
@@ -127,7 +129,7 @@ export function useFormLifecycleDraft<S extends LifecycleStage>({
         form.removeEventListener("change", scheduleSave);
       };
     },
-    [buildDraft, debounceMs, enabled, scopeKey, stage],
+    [debounceMs, enabled, persistDraft],
   );
 
   function clearDraft() {
