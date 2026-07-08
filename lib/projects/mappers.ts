@@ -7,6 +7,7 @@ import {
 import type { ProjectLinkRecord } from "@/lib/project-record-types";
 import { createId } from "@/lib/projects/ids";
 import { type bcLinkInputSchema } from "@/lib/projects/schemas";
+import { normalizeProjectServiceType } from "@/lib/projects-types";
 
 function linkNrcTotal(link: {
   newBuildCost: number;
@@ -38,10 +39,12 @@ export function mapLinkInputToRecord(
     wayleaveCost,
   });
 
+  const normalizedService = normalizeProjectServiceType(link.service) ?? link.service;
+
   return {
     id: options.id ?? createId(),
     linkName: link.linkName,
-    service: link.service,
+    service: normalizedService,
     technology: link.technology,
     onnetOffnet: link.onnetOffnet,
     costSource: link.costSource,

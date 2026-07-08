@@ -117,7 +117,7 @@ CREATE TABLE `project_links` (
 	`link_name` varchar(255) NOT NULL,
 	`service` varchar(80) NOT NULL,
 	`technology` varchar(120) NOT NULL,
-	`onnet_offnet` enum('Onnet','Offnet'),
+	`onnet_offnet` enum('Onnet','3rd Party'),
 	`cost_source` enum('PBOQ','Fibre Ready','Actual Survey','3rd Party Quote'),
 	`new_build_cost` decimal(15,2) NOT NULL DEFAULT '0',
 	`provisioning_cost` decimal(15,2) NOT NULL DEFAULT '0',

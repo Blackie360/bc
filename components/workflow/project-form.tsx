@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
 import { readFormFieldValue } from "@/lib/project-lifecycle-storage";
-import type { ProjectRecord } from "@/lib/projects";
+import type { ProjectRecord } from "@/lib/project-record-types";
 import { roleRoutes, roles, workflowStates } from "@/lib/workflow";
 
 function Field({

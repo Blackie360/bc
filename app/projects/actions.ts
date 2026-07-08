@@ -375,6 +375,9 @@ const pboqKickoffLinkFieldNames = [
 ] as const;
 type PboqKickoffLinkFieldName = (typeof pboqKickoffLinkFieldNames)[number];
 type RawPboqKickoffLinkRow = Partial<Record<PboqKickoffLinkFieldName, string>>;
+const preparedBcOtherExpenseFieldNames = ["label", "monthlyCost"] as const;
+type PreparedBcOtherExpenseFieldName = (typeof preparedBcOtherExpenseFieldNames)[number];
+type RawPreparedBcOtherExpenseRow = Partial<Record<PreparedBcOtherExpenseFieldName, string>>;
 
 type BcSubmissionFormFields = Omit<BcSubmissionInput, "accountManagerName">;
 type BcDraftFormFields = Omit<BcDraftInput, "accountManagerName">;
@@ -564,6 +567,7 @@ function parsePreparedBcForm(formData: FormData): PreparedBcInput {
     nrv: numberField(formData, "nrv"),
     tcv: numberField(formData, "tcv"),
     exchangeRateKesUsd: Number(textField(formData, "exchangeRateKesUsd")),
+    otherExpenses: parsePreparedBcOtherExpenses(formData),
     links,
     lsoAttachment: fileAttachment(formData, "lsoAttachment", "LSO"),
     bcTemplates: fileAttachments(formData, "bcTemplate", "BC_TEMPLATE"),
@@ -580,6 +584,38 @@ function parsePreparedBcForm(formData: FormData): PreparedBcInput {
     linkEvidenceAttachments,
     linkSupplierQuoteAttachments,
   };
+}
+
+function parsePreparedBcOtherExpenses(
+  formData: FormData,
+): PreparedBcInput["otherExpenses"] {
+  const rawRows = new Map<number, RawPreparedBcOtherExpenseRow>();
+  const otherExpenseFieldPattern = /^otherExpenses\[(\d+)]\[(\w+)]$/;
+
+  for (const [key, value] of formData.entries()) {
+    if (typeof value !== "string") continue;
+
+    const match = key.match(otherExpenseFieldPattern);
+    if (!match) continue;
+
+    const index = Number(match[1]);
+    const field = match[2] as PreparedBcOtherExpenseFieldName;
+
+    if (!preparedBcOtherExpenseFieldNames.includes(field)) continue;
+
+    rawRows.set(index, {
+      ...rawRows.get(index),
+      [field]: value.trim(),
+    });
+  }
+
+  return Array.from(rawRows.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, row]) => ({
+      label: row.label ?? "",
+      monthlyCost: numberOrZero(row.monthlyCost),
+    }))
+    .filter((row) => row.label.length > 0 || row.monthlyCost > 0);
 }
 
 function parsePboqCostLines(
@@ -742,12 +778,15 @@ function parseLinks(
         nrcBreakdown.wayleaveCost;
       const parsedNrc = numberOrZero(row.nrc);
       const onnetOffnet = normalizeLinkOnnetOffnet(row.onnetOffnet);
+      const costSource = isThirdPartyLink(onnetOffnet)
+        ? "3rd Party Quote"
+        : ((row.costSource ?? "PBOQ") as BcSubmissionInput["links"][number]["costSource"]);
       const linkPayload = {
         linkName: row.linkName ?? (allowPartialRows ? `Draft link ${index + 1}` : ""),
         service: row.service ?? (allowPartialRows ? "Unspecified" : ""),
         technology: row.technology ?? (allowPartialRows ? "Unspecified" : ""),
         onnetOffnet,
-        costSource: (row.costSource ?? "PBOQ") as BcSubmissionInput["links"][number]["costSource"],
+        costSource,
         providerName: row.providerName?.trim() ?? "",
         ...nrcBreakdown,
         mrr: numberOrZero(row.mrr),

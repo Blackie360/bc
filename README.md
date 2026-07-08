@@ -189,7 +189,8 @@ LDAP_DIRECTORY_LOOKUP_ENABLED="false"
 ROLE_ASSIGNMENT_EMAIL_OPTIONS="user@liquid.tech;another.user@liquid.tech"
 ```
 
-Only `@liquid.tech` email addresses are available for role allocation. You can tune slow directory connections with `LDAP_CONNECT_TIMEOUT_MS`, `LDAP_TIMEOUT_MS`, and `LDAP_DIRECTORY_USER_SIZE_LIMIT`.
+By default only `@liquid.tech` email addresses are available for role allocation. You can tune slow directory connections with `LDAP_CONNECT_TIMEOUT_MS`, `LDAP_TIMEOUT_MS`, and `LDAP_DIRECTORY_USER_SIZE_LIMIT`.
+If your AD emails use multiple domains, set `LDAP_DIRECTORY_EMAIL_DOMAINS` (comma, space, or semicolon separated), for example: `LDAP_DIRECTORY_EMAIL_DOMAINS="liquid.tech;liquidtelecom.co.ke"`.
 
 The MySQL schema includes:
 

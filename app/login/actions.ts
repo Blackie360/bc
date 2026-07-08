@@ -64,7 +64,11 @@ export async function loginAction(formData: FormData) {
       path: "/",
       maxAge: AUTH_SESSION_MAX_AGE_SECONDS,
     });
-  } catch {
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("Login failed", error);
+    }
+
     redirect(`/login?error=invalid&next=${encodeURIComponent(next)}`);
   }
 

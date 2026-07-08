@@ -32,6 +32,8 @@ import {
   hasPboqDocumentAttachment,
   isAccountManagerBcPreparationStage,
   isFibreReadyOpportunity,
+  normalizeLinkOnnetOffnet,
+  normalizeProjectServiceType,
   planningRoleForProject,
   projectDecisionStatus,
 } from "@/lib/projects";
@@ -619,9 +621,13 @@ export default async function ProjectDetailPage({
                     {project.links.map((link) => (
                       <tr key={link.id}>
                         <td className="px-3 py-3 font-medium">{link.linkName}</td>
-                        <td className="px-3 py-3">{link.service || "—"}</td>
+                        <td className="px-3 py-3">
+                          {(normalizeProjectServiceType(link.service) ?? link.service) || "—"}
+                        </td>
                         <td className="px-3 py-3">{link.technology || "—"}</td>
-                        <td className="px-3 py-3">{link.onnetOffnet ?? "—"}</td>
+                        <td className="px-3 py-3">
+                          {link.onnetOffnet ? normalizeLinkOnnetOffnet(link.onnetOffnet) : "—"}
+                        </td>
                         <td className="px-3 py-3">{link.providerName || "—"}</td>
                         <td className="px-3 py-3">{link.costSource ?? "—"}</td>
                         <td className="px-3 py-3">{money(link.newBuildCost)}</td>

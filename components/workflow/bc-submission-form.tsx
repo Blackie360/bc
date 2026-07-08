@@ -23,11 +23,11 @@ import {
 import {
   isThirdPartyLink,
   normalizeLinkOnnetOffnet,
+  normalizeProjectServiceType,
   type LinkOnnetOffnet,
 } from "@/lib/projects-types";
 import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 import { cn } from "@/lib/utils";
-import { shouldRouteSubsidyToSalesOperations } from "@/lib/projects";
 
 type LinkRow = {
   id: number;
@@ -137,7 +137,7 @@ function buildRowsFromDraft(links?: BcSubmissionLinkDraft[]): LinkRow[] {
     id: index + 1,
     ...link,
     onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
-    service: link.service === "DFA" ? "DF" : link.service,
+    service: normalizeProjectServiceType(link.service) ?? link.service,
   }));
 }
 
@@ -289,6 +289,12 @@ export function BcSubmissionForm({
           ? {
               ...row,
               onnetOffnet,
+              costSource:
+                onnetOffnet === "3rd Party"
+                  ? "3rd Party Quote"
+                  : row.costSource === "3rd Party Quote"
+                    ? "PBOQ"
+                    : row.costSource,
               onnetCapacity: onnetOffnet === "Onnet" ? row.onnetCapacity : undefined,
               offnetCapacity: onnetOffnet === "3rd Party" ? row.offnetCapacity : undefined,
               providerName: onnetOffnet === "3rd Party" ? row.providerName : undefined,
@@ -326,6 +332,15 @@ export function BcSubmissionForm({
   function updateRowMetric(id: number, field: keyof BcSubmissionLinkDraft, value: string) {
     setRows((current) =>
       current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
+
+  function updateRowCostSource(
+    id: number,
+    costSource: "PBOQ" | "Fibre Ready" | "Actual Survey" | "3rd Party Quote",
+  ) {
+    setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, costSource } : row)),
     );
   }
 
@@ -630,7 +645,17 @@ export function BcSubmissionForm({
                 <Field label="Source">
                   <Select
                     name={`links[${index}][costSource]`}
-                    defaultValue={row.costSource ?? "PBOQ"}
+                    value={row.costSource ?? "PBOQ"}
+                    onChange={(event) =>
+                      updateRowCostSource(
+                        row.id,
+                        event.currentTarget.value as
+                          | "PBOQ"
+                          | "Fibre Ready"
+                          | "Actual Survey"
+                          | "3rd Party Quote",
+                      )
+                    }
                     required
                   >
                     <option>PBOQ</option>
@@ -666,6 +691,7 @@ export function BcSubmissionForm({
                       placeholder="e.g. 100"
                       step="any"
                       min="0"
+                      required
                     />
                     <input type="hidden" name={`links[${index}][onnetCapacity]`} value="" />
                   </Field>
@@ -742,6 +768,7 @@ export function BcSubmissionForm({
                     value={row.mrc ?? ""}
                     onChange={(event) => updateRowMetric(row.id, "mrc", event.currentTarget.value)}
                     className="text-right tabular-nums"
+                    required={isThirdParty}
                   />
                 </Field>
                 <Field label="MRR">

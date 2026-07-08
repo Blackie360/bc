@@ -10,7 +10,9 @@ export type LinkCostSource = (typeof linkCostSourceValues)[number];
 export type ProjectRecordRequiredService = ProjectServiceType | "Unspecified";
 
 export function normalizeLinkOnnetOffnet(value: string | null | undefined): LinkOnnetOffnet {
-  if (value === "Offnet" || value === "3rd Party") {
+  const normalized = value?.trim().toLowerCase();
+
+  if (normalized === "offnet" || normalized === "3rd party") {
     return "3rd Party";
   }
 
@@ -28,16 +30,26 @@ export function normalizeProjectServiceType(
     return undefined;
   }
 
-  if (value === "DFA") {
+  const normalized = value.trim().toUpperCase();
+
+  if (normalized === "DFA") {
     return "DF";
   }
 
-  switch (value) {
+  if (
+    normalized === "OTHER SERVICES" ||
+    normalized === "OTHERSERVICES" ||
+    normalized === "OTHER SERVICE" ||
+    normalized === "OTHER"
+  ) {
+    return "Other Services";
+  }
+
+  switch (normalized) {
     case "EPL":
     case "DIA":
     case "DF":
-    case "Other Services":
-      return value;
+      return normalized;
     default:
       return undefined;
   }

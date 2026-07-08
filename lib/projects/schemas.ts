@@ -66,6 +66,38 @@ export const bcLinkInputSchema = z
         path: ["providerName"],
       });
     }
+
+    if (!link.offnetCapacity?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "3rd Party capacity is required for Offnet links.",
+        path: ["offnetCapacity"],
+      });
+    }
+
+    if (link.costSource !== "3rd Party Quote") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Offnet links must use 3rd Party Quote as the source.",
+        path: ["costSource"],
+      });
+    }
+
+    if (link.supplierQuoteAttachmentIndex == null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Supplier quote is required for Offnet links.",
+        path: ["supplierQuoteAttachmentIndex"],
+      });
+    }
+
+    if (link.mrc <= 0 && link.nrc <= 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Offnet links require quote pricing (MRC and/or NRC) for calculations.",
+        path: ["mrc"],
+      });
+    }
   });
 
 export const bcSubmissionInputSchema = z.object({
@@ -207,6 +239,14 @@ export const preparedBcInputSchema = z.object({
   nrv: z.coerce.number().nonnegative(),
   tcv: z.coerce.number().nonnegative(),
   exchangeRateKesUsd: z.coerce.number().positive(),
+  otherExpenses: z
+    .array(
+      z.object({
+        label: z.string().default(""),
+        monthlyCost: z.coerce.number().nonnegative(),
+      }),
+    )
+    .default([]),
   links: z.array(bcLinkInputSchema).min(1),
   lsoAttachment: z.object({
     type: z.literal("LSO"),

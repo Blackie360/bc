@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
 import type { ProjectRecord } from "@/lib/project-record-types";
+import { normalizeLinkOnnetOffnet, normalizeProjectServiceType } from "@/lib/projects-types";
 
 type PdfObject = string | Buffer;
 
@@ -541,7 +542,9 @@ export function renderBcApprovalCertificatePdf(project: ProjectRecord) {
       );
       commands.push(
         pdfText(
-          `${link.service} - ${link.technology} - ${link.onnetOffnet ?? "Unspecified"} - ${link.costSource ?? "No source"}`,
+          `${normalizeProjectServiceType(link.service) ?? link.service} - ${link.technology} - ${
+            link.onnetOffnet ? normalizeLinkOnnetOffnet(link.onnetOffnet) : "Unspecified"
+          } - ${link.costSource ?? "No source"}`,
           marginX + 12,
           y - 34,
           { size: 8, fill: colors.muted },

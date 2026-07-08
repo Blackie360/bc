@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Download, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronRight, Plus, Save, Trash2 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CapacityMbpsInput } from "@/components/workflow/capacity-mbps-input";
 import { DraftSavedNotice } from "@/components/workflow/draft-saved-notice";
 import { useFormLifecycleDraft } from "@/hooks/use-form-lifecycle-draft";
-import { capacityMbpsInputValue, capacityMbpsNumber } from "@/lib/capacity";
+import { capacityMbpsInputValue } from "@/lib/capacity";
 import {
   readFormFieldValue,
   readIndexedFormRows,
@@ -37,6 +37,10 @@ import {
   type LinkOnnetOffnet,
   type ProjectServiceType,
 } from "@/lib/projects-types";
+import {
+  bcTemplatePolicy,
+  calculateBcTemplateMetrics,
+} from "@/lib/projects/bc-template-metrics";
 import { shouldRouteSubsidyToSalesOperations } from "@/lib/subsidy-routing";
 import { cn } from "@/lib/utils";
 import { deriveDecision } from "@/lib/workflow";
@@ -1036,25 +1040,6 @@ type OtherExpenseRowState = {
   monthlyCost?: string;
 };
 
-const bcTemplateGuidanceFileName = "ordinary-bc-template-guidance.txt";
-const bcTemplatePolicy = {
-  costOfCapital: 0.143,
-  salesCommissionRate: 0.05,
-  adminExpenseRate: 0.03,
-  networkOpexRate: 0.05,
-  licenseFeeRate: 0.01,
-  minimumTaxRate: 0,
-  taxRate: 0.3,
-  capacityCostPerMbps: 1.4,
-  depreciationYears: 8,
-  guidedIrrPercent: 22,
-  subsidyDisclosureThresholdUsd: 300,
-  litInvestmentThresholdUsd: 5000,
-  subsidyMultiple: 3,
-  autoProceedPaybackMonths: 6,
-  defaultExchangeRateKesUsd: 130,
-} as const;
-
 function isFibreReadyProject(project: ProjectRecord) {
   return (
     project.pboqRequest?.technology === "Fibre Ready" ||
@@ -1074,6 +1059,37 @@ function defaultRevenueForNewRow(project: ProjectRecord, linkCount: number) {
   };
 }
 
+function splitRevenueEvenly(total: number, count: number) {
+  if (count <= 0) {
+    return [];
+  }
+
+  const safeTotal = Number.isFinite(total) ? total : 0;
+  const evenShare = Number((safeTotal / count).toFixed(2));
+  const values = Array.from({ length: count }, (_item, index) =>
+    index === count - 1
+      ? Number((safeTotal - evenShare * (count - 1)).toFixed(2))
+      : evenShare,
+  );
+
+  return values.map((value) => formatMetricInput(value));
+}
+
+function rebalanceLinkRevenueRows(rows: LinkRowState[], project: ProjectRecord) {
+  if (rows.length === 0) {
+    return rows;
+  }
+
+  const mrrValues = splitRevenueEvenly(project.opportunityMrr, rows.length);
+  const nrrValues = splitRevenueEvenly(project.opportunityNrr, rows.length);
+
+  return rows.map((row, index) => ({
+    ...row,
+    mrr: mrrValues[index] ?? "0",
+    nrr: nrrValues[index] ?? "0",
+  }));
+}
+
 function bcTemplateFileNames(draft?: PreparedBcDraft | null) {
   const attachments = draft?.bcTemplates ?? (draft?.bcTemplate ? [draft.bcTemplate] : []);
 
@@ -1084,6 +1100,7 @@ function mapDraftLinkToRow(
   link: NonNullable<PreparedBcDraft["links"]>[number],
   index: number,
 ): LinkRowState {
+  const normalizedService = normalizeProjectServiceType(link.service);
   const mrc = link.mrc && link.mrc.length > 0 ? link.mrc : "0";
   const mrr = link.mrr && link.mrr.length > 0 ? link.mrr : "0";
   const nrr = link.nrr && link.nrr.length > 0 ? link.nrr : "0";
@@ -1091,7 +1108,7 @@ function mapDraftLinkToRow(
   return {
     id: index + 1,
     linkName: link.linkName,
-    service: link.service ?? "DIA",
+    service: normalizedService ?? "DIA",
     technology: link.technology ?? "Fiber",
     onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
     costSource: link.costSource ?? "PBOQ",
@@ -1121,24 +1138,28 @@ function buildInitialLinkRows(
   }
 
   if (project.links.length > 0) {
-    return project.links.map((link, index) => ({
-      id: index + 1,
-      linkName: link.linkName,
-      service: link.service || "DIA",
-      technology: link.technology || defaultTechnology,
-      onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
-      costSource: link.costSource ?? defaultCostSource,
-      onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
-      offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
-      providerName: link.providerName ?? undefined,
-      newBuildCost: String(link.newBuildCost),
-      provisioningCost: String(link.provisioningCost),
-      materialCost: String(link.materialCost),
-      wayleaveCost: String(link.wayleaveCost),
-      mrc: String(link.mrc),
-      mrr: String(link.mrr),
-      nrr: String(link.nrr),
-    }));
+    return project.links.map((link, index) => {
+      const normalizedService = normalizeProjectServiceType(link.service);
+
+      return {
+        id: index + 1,
+        linkName: link.linkName,
+        service: normalizedService ?? "DIA",
+        technology: link.technology || defaultTechnology,
+        onnetOffnet: normalizeLinkOnnetOffnet(link.onnetOffnet),
+        costSource: link.costSource ?? defaultCostSource,
+        onnetCapacity: capacityMbpsInputValue(link.onnetCapacity),
+        offnetCapacity: capacityMbpsInputValue(link.offnetCapacity),
+        providerName: link.providerName ?? undefined,
+        newBuildCost: String(link.newBuildCost),
+        provisioningCost: String(link.provisioningCost),
+        materialCost: String(link.materialCost),
+        wayleaveCost: String(link.wayleaveCost),
+        mrc: String(link.mrc),
+        mrr: String(link.mrr),
+        nrr: String(link.nrr),
+      };
+    });
   }
 
   const costLines = project.pboqRequest?.costLines ?? [];
@@ -1292,205 +1313,6 @@ function numberOrZero(value?: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function calculateIrrRate(cashFlows: number[]) {
-  if (cashFlows.length < 2 || cashFlows.every((cashFlow) => cashFlow >= 0)) {
-    return 0;
-  }
-
-  const npv = (rate: number) =>
-    cashFlows.reduce((sum, cashFlow, period) => sum + cashFlow / (1 + rate) ** period, 0);
-  let low = -0.9999;
-  let high = 10;
-  let mid = 0;
-
-  for (let index = 0; index < 1000; index += 1) {
-    mid = (low + high) / 2;
-    const lowNpv = npv(low);
-    const midNpv = npv(mid);
-
-    if (Math.abs(midNpv) < 1e-7) {
-      break;
-    }
-
-    if (lowNpv * midNpv < 0) {
-      high = mid;
-    } else {
-      low = mid;
-    }
-  }
-
-  return mid;
-}
-
-function calculateExcelTemplateMetrics({
-  rows,
-  otherExpenseRows,
-  contractTermMonths,
-  exchangeRateKesUsd,
-}: {
-  rows: LinkRowState[];
-  otherExpenseRows: OtherExpenseRowState[];
-  contractTermMonths: number;
-  exchangeRateKesUsd: number;
-}) {
-  const monthlyMrr = rows.reduce((total, row) => total + numberOrZero(row.mrr), 0);
-  const monthlyMrc = rows.reduce((total, row) => total + numberOrZero(row.mrc), 0);
-  const clientNrr = rows.reduce((total, row) => total + numberOrZero(row.nrr), 0);
-  const nrc = rows.reduce(
-    (total, row) =>
-      total +
-      nrcTotalFromParts({
-        newBuildCost: row.newBuildCost,
-        provisioningCost: row.provisioningCost,
-        materialCost: row.materialCost,
-        wayleaveCost: row.wayleaveCost,
-      }),
-    0,
-  );
-  const capacityMbps = rows.reduce((total, row) => {
-    const capacity = isThirdPartyLink(row.onnetOffnet) ? row.offnetCapacity : row.onnetCapacity;
-    return total + capacityMbpsNumber(capacity);
-  }, 0);
-  const litInvestment = nrc - clientNrr;
-  const monthlyRevenue = monthlyMrr;
-  const monthlyCapacityCost =
-    capacityMbps * bcTemplatePolicy.capacityCostPerMbps + monthlyMrc;
-  const monthlySalesCommission = monthlyRevenue * bcTemplatePolicy.salesCommissionRate;
-  const monthlyCogs = monthlyCapacityCost + monthlySalesCommission;
-  const monthlyGrossMargin = monthlyRevenue - monthlyCogs;
-  const monthlyAdminExpenses = monthlyRevenue * bcTemplatePolicy.adminExpenseRate;
-  const monthlyNetworkOpex = monthlyRevenue * bcTemplatePolicy.networkOpexRate;
-  const monthlyLicenseFee = monthlyRevenue * bcTemplatePolicy.licenseFeeRate;
-  const monthlyMinimumTax = monthlyRevenue * bcTemplatePolicy.minimumTaxRate;
-  const monthlyOtherExpenses = otherExpenseRows.reduce(
-    (total, expense) => total + numberOrZero(expense.monthlyCost),
-    0,
-  );
-  const monthlyEbitda =
-    monthlyGrossMargin -
-    monthlyNetworkOpex -
-    monthlyAdminExpenses -
-    monthlyLicenseFee -
-    monthlyMinimumTax -
-    monthlyOtherExpenses;
-  const monthlyDepreciation =
-    litInvestment > 0
-      ? litInvestment / (bcTemplatePolicy.depreciationYears * 12)
-      : 0;
-  const monthlyEbt = monthlyEbitda - monthlyDepreciation;
-  const monthlyTax = monthlyEbt < 0 ? 0 : -bcTemplatePolicy.taxRate * monthlyEbt;
-  const monthlyPat = monthlyEbt + monthlyTax;
-  const monthlyFreeCashFlow = monthlyPat + monthlyDepreciation - monthlyTax;
-  const initialFreeCashFlow = -litInvestment;
-  const monthlyDiscountRate = bcTemplatePolicy.costOfCapital / 12;
-  const monthlyNpvs = Array.from({ length: contractTermMonths }, (_item, index) => {
-    const month = index + 1;
-    const discountedCashFlows = Array.from({ length: month }, (_cashFlow, cashFlowIndex) =>
-      monthlyFreeCashFlow / (1 + monthlyDiscountRate) ** (cashFlowIndex + 1),
-    );
-
-    return initialFreeCashFlow + discountedCashFlows.reduce((total, value) => total + value, 0);
-  });
-  const negativeMonths = monthlyNpvs.filter((npv) => npv < 0).length;
-  const paybackMonths =
-    negativeMonths >= contractTermMonths || monthlyFreeCashFlow <= 0
-      ? Number.POSITIVE_INFINITY
-      : negativeMonths === 0
-        ? 0
-        : negativeMonths +
-          -monthlyNpvs[negativeMonths - 1] / monthlyFreeCashFlow;
-  const yearlyCashFlows = [
-    initialFreeCashFlow,
-    ...Array.from({ length: Math.ceil(contractTermMonths / 12) }, (_item, index) => {
-      const monthsInYear = Math.min(12, contractTermMonths - index * 12);
-      return monthlyFreeCashFlow * monthsInYear;
-    }),
-  ];
-  const yearlyIrrs = yearlyCashFlows
-    .slice(1)
-    .map((_cashFlow, index) => calculateIrrRate(yearlyCashFlows.slice(0, index + 2)));
-  const irr = Math.max(0, ...yearlyIrrs) * 100;
-  const nrv = monthlyNpvs[contractTermMonths - 1] ?? initialFreeCashFlow;
-  const tcv = (monthlyMrr - monthlyMrc) * contractTermMonths + clientNrr;
-  const firstMonthNpv = monthlyNpvs[0] ?? initialFreeCashFlow;
-  const guidance1 =
-    firstMonthNpv > 0 ||
-    (litInvestment <= bcTemplatePolicy.litInvestmentThresholdUsd &&
-      irr >= bcTemplatePolicy.guidedIrrPercent &&
-      litInvestment <= monthlyMrr * bcTemplatePolicy.subsidyMultiple &&
-      paybackMonths <= bcTemplatePolicy.autoProceedPaybackMonths)
-      ? "Proceed"
-      : "Seek Finance Approval";
-  const requiresSubsidyDisclosure =
-    litInvestment > bcTemplatePolicy.subsidyDisclosureThresholdUsd;
-  const guidance2 = requiresSubsidyDisclosure
-    ? "Disclosure of subsidised amount required"
-    : "No subsidy disclosure required";
-  const subsidyKes =
-    litInvestment > 0 && exchangeRateKesUsd > 0 ? litInvestment * exchangeRateKesUsd : 0;
-
-  return {
-    monthlyMrr,
-    monthlyMrc,
-    clientNrr,
-    nrc,
-    litInvestment,
-    capacityMbps,
-    monthlyOtherExpenses,
-    monthlyFreeCashFlow,
-    firstMonthNpv,
-    nrv,
-    tcv,
-    paybackMonths,
-    submittedPaybackMonths: Number.isFinite(paybackMonths)
-      ? Math.max(1, Math.ceil(paybackMonths))
-      : contractTermMonths + 1,
-    irr,
-    guidance1,
-    guidance2,
-    requiresSubsidyDisclosure,
-    subsidyKes,
-  };
-}
-
-function buildBcTemplateGuidanceDownload(metrics: ReturnType<typeof calculateExcelTemplateMetrics>) {
-  const lines = [
-    "Ordinary BC Template Guidance",
-    "",
-    "Fields to capture:",
-    "- Customer Name, Account Number, Opportunity Number, Account Manager",
-    "- Solution Architecture, Engineering, Contract Term, Project Executive Summary",
-    "- Per link: Link Name, Service, Technology, Onnet/3rd Party, NRC, MRC, MRR, NRR, Capacity",
-    "- Attachments: LSO, BC template Excel, PBOQ/actual surveys, supplier quotes for 3rd Party links",
-    "",
-    "Template calculations:",
-    `NRR (USD): ${formatMetricDisplay(metrics.clientNrr)}`,
-    `NRC (USD): ${formatMetricDisplay(metrics.nrc)}`,
-    `LIT upfront investment (USD): ${formatMetricDisplay(metrics.litInvestment)}`,
-    `TCV (USD): ${formatMetricDisplay(metrics.tcv)}`,
-    `Payback: ${formatMetricDisplay(metrics.paybackMonths)} months`,
-    `IRR: ${formatMetricDisplay(metrics.irr)}%`,
-    `NRV (USD): ${formatMetricDisplay(metrics.nrv)}`,
-    "",
-    "Guidance:",
-    `Guidance 1: ${metrics.guidance1}`,
-    `Guidance 2: ${metrics.guidance2}`,
-  ];
-
-  if (metrics.requiresSubsidyDisclosure) {
-    lines.push(
-      "",
-      "LSO subsidy wording:",
-      "By signing this Service Order Form, you acknowledge that:",
-      `1. The installation charge has been discounted by an amount of KES ${formatMetricDisplay(metrics.subsidyKes, 0)}.`,
-      "2. The discount is on condition that you will not downgrade and/or terminate the Order before expiry of the Contract Term.",
-      "3. The discount amount shall be payable to Liquid immediately upon any such downgrade and/or early termination.",
-    );
-  }
-
-  return lines.join("\n");
-}
-
 const bcFormTabs = ["details", "links", "metrics"] as const;
 type BcFormTab = (typeof bcFormTabs)[number];
 
@@ -1623,9 +1445,9 @@ export function PreparedBcForm({
     [rows],
   );
   const financialMetrics = useMemo(() => {
-    const metrics = calculateExcelTemplateMetrics({
-      rows,
-      otherExpenseRows,
+    const metrics = calculateBcTemplateMetrics({
+      links: rows,
+      otherExpenses: otherExpenseRows,
       contractTermMonths,
       exchangeRateKesUsd: numberOrZero(exchangeRateKesUsd),
     });
@@ -1666,29 +1488,37 @@ export function PreparedBcForm({
     otherExpenseRows,
     contractTermMonths,
     subsidyRequirement,
+    exchangeRateKesUsd,
   ]);
 
   function addRow() {
     setRows((current) => {
       const nextCount = current.length + 1;
       const revenue = defaultRevenueForNewRow(project, nextCount);
+      const newRow: LinkRowState = {
+        id: Date.now(),
+        onnetOffnet: "Onnet",
+        service: "DIA",
+        technology: isFibreReady ? "Fibre Ready" : "Fiber",
+        costSource: isFibreReady ? "Fibre Ready" : "PBOQ",
+        ...revenue,
+      };
 
-      return [
-        ...current,
-        {
-          id: Date.now(),
-          onnetOffnet: "Onnet",
-          service: "DIA",
-          technology: isFibreReady ? "Fibre Ready" : "Fiber",
-          costSource: isFibreReady ? "Fibre Ready" : "PBOQ",
-          ...revenue,
-        },
-      ];
+      const nextRows = [...current, newRow];
+
+      return rebalanceLinkRevenueRows(nextRows, project);
     });
   }
 
   function removeRow(id: number) {
-    setRows((current) => (current.length === 1 ? current : current.filter((row) => row.id !== id)));
+    setRows((current) => {
+      if (current.length === 1) {
+        return current;
+      }
+
+      const nextRows = current.filter((row) => row.id !== id);
+      return rebalanceLinkRevenueRows(nextRows, project);
+    });
   }
 
   function updateRowOnnetOffnet(id: number, onnetOffnet: LinkOnnetOffnet) {
@@ -1698,6 +1528,12 @@ export function PreparedBcForm({
           ? {
               ...row,
               onnetOffnet,
+              costSource:
+                onnetOffnet === "3rd Party"
+                  ? "3rd Party Quote"
+                  : row.costSource === "3rd Party Quote"
+                    ? (isFibreReady ? "Fibre Ready" : "PBOQ")
+                    : row.costSource,
               onnetCapacity: onnetOffnet === "Onnet" ? row.onnetCapacity : undefined,
               offnetCapacity: onnetOffnet === "3rd Party" ? row.offnetCapacity : undefined,
               providerName: onnetOffnet === "3rd Party" ? row.providerName : undefined,
@@ -1710,6 +1546,15 @@ export function PreparedBcForm({
   function updateRowRevenue(id: number, field: "mrc" | "mrr" | "nrr", value: string) {
     setRows((current) =>
       current.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  }
+
+  function updateRowCostSource(
+    id: number,
+    costSource: "PBOQ" | "Fibre Ready" | "Actual Survey" | "3rd Party Quote",
+  ) {
+    setRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, costSource } : row)),
     );
   }
 
@@ -1752,18 +1597,6 @@ export function PreparedBcForm({
 
   function handleSubmit() {
     clearDraft();
-  }
-
-  function downloadBcTemplateGuidance() {
-    const content = buildBcTemplateGuidanceDownload(financialMetrics);
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = bcTemplateGuidanceFileName;
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
   function goToNextTab() {
@@ -2070,7 +1903,17 @@ export function PreparedBcForm({
                           <td className="min-w-0 align-middle px-2 py-2">
                             <Select
                               name={`links[${index}][costSource]`}
-                              defaultValue={row.costSource ?? "PBOQ"}
+                              value={row.costSource ?? "PBOQ"}
+                              onChange={(event) =>
+                                updateRowCostSource(
+                                  row.id,
+                                  event.currentTarget.value as
+                                    | "PBOQ"
+                                    | "Fibre Ready"
+                                    | "Actual Survey"
+                                    | "3rd Party Quote",
+                                )
+                              }
                               required
                             >
                               <option>PBOQ</option>
@@ -2101,6 +1944,7 @@ export function PreparedBcForm({
                                   onChange={(value) =>
                                     updateRowCapacity(row.id, "offnetCapacity", value)
                                   }
+                                  required
                                 />
                                 <input type="hidden" name={`links[${index}][onnetCapacity]`} value="" />
                               </>
@@ -2113,8 +1957,12 @@ export function PreparedBcForm({
                               inputMode="decimal"
                               step="0.01"
                               min="0"
-                              defaultValue={row.mrc ?? "0"}
+                              value={row.mrc ?? "0"}
                               className="text-right tabular-nums"
+                              onChange={(event) =>
+                                updateRowRevenue(row.id, "mrc", event.currentTarget.value)
+                              }
+                              required={isThirdParty}
                             />
                           </td>
                           <td className="min-w-0 align-middle px-2 py-2 text-right">
@@ -2139,8 +1987,11 @@ export function PreparedBcForm({
                               inputMode="decimal"
                               step="0.01"
                               min="0"
-                              defaultValue={row.nrr ?? "0"}
+                              value={row.nrr ?? "0"}
                               className="text-right tabular-nums"
+                              onChange={(event) =>
+                                updateRowRevenue(row.id, "nrr", event.currentTarget.value)
+                              }
                             />
                           </td>
                           <td className="min-w-0 align-middle px-2 py-2">
@@ -2426,7 +2277,8 @@ export function PreparedBcForm({
                     inputMode="decimal"
                     min="0.01"
                     step="0.01"
-                    defaultValue={(savedDraft?.exchangeRateKesUsd ?? project.exchangeRateKesUsd) || undefined}
+                    value={exchangeRateKesUsd}
+                    onChange={(event) => setExchangeRateKesUsd(event.currentTarget.value)}
                     required
                   />
                 </Field>

@@ -945,7 +945,7 @@
         },
         "onnet_offnet": {
           "name": "onnet_offnet",
-          "type": "enum('Onnet','Offnet')",
+          "type": "enum('Onnet','3rd Party')",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

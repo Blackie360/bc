@@ -17,9 +17,11 @@ function localProjectStoragePath() {
 }
 
 function normalizeProjectLink(link: ProjectLinkRecord): ProjectLinkRecord {
+  const normalizedService = normalizeProjectServiceType(link.service);
+
   return {
     ...link,
-    service: link.service === "DFA" ? "DF" : link.service,
+    service: normalizedService ?? link.service,
     onnetOffnet: link.onnetOffnet ? normalizeLinkOnnetOffnet(link.onnetOffnet) : null,
     providerName: link.providerName ?? null,
     supplierQuoteDocumentId: link.supplierQuoteDocumentId ?? null,

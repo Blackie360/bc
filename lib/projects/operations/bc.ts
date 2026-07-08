@@ -5,6 +5,7 @@ import type { PreparedBcDraft } from "@/lib/project-lifecycle-storage";
 import type { ProjectRecord } from "@/lib/project-record-types";
 import { issueBcApprovalCertificate } from "@/lib/projects/certificate";
 import { buildReference } from "@/lib/projects/ids";
+import { calculateBcTemplateMetrics } from "@/lib/projects/bc-template-metrics";
 import { mapLinkInputToRecord } from "@/lib/projects/mappers";
 import { localDocument, createLocalProjectRecord } from "@/lib/projects/record-factory";
 import { localRouteForPreparedBusinessCase } from "@/lib/projects/routing";
@@ -46,13 +47,6 @@ export async function localPrepareBusinessCaseFromPboq(id: string, input: Prepar
       }
 
       const now = new Date().toISOString();
-      const decision = deriveDecision({
-        irr: validated.irr,
-        paybackMonths: validated.payback,
-        subsidyRequirement: validated.subsidy,
-        capex: validated.capex,
-      }).decision;
-      const route = localRouteForPreparedBusinessCase(validated.subsidy);
       const newDocuments = [
         localDocument(validated.lsoAttachment, now),
         ...validated.bcTemplates.map((attachment) => localDocument(attachment, now)),
@@ -93,6 +87,19 @@ export async function localPrepareBusinessCaseFromPboq(id: string, input: Prepar
           supplierQuoteDocumentId,
         });
       });
+      const metrics = calculateBcTemplateMetrics({
+        links,
+        otherExpenses: validated.otherExpenses,
+        contractTermMonths: validated.contractTermMonths,
+        exchangeRateKesUsd: validated.exchangeRateKesUsd,
+      });
+      const decision = deriveDecision({
+        irr: metrics.irr,
+        paybackMonths: metrics.submittedPaybackMonths,
+        subsidyRequirement: validated.subsidy,
+        capex: metrics.nrc,
+      }).decision;
+      const route = localRouteForPreparedBusinessCase(validated.subsidy);
 
       const preparedProject = {
         ...project,
@@ -104,13 +111,13 @@ export async function localPrepareBusinessCaseFromPboq(id: string, input: Prepar
         projectExecutiveSummary: validated.projectExecutiveSummary,
         contractTermMonths: validated.contractTermMonths,
         type: validated.type,
-        irr: validated.irr,
-        payback: validated.payback,
-        capex: validated.capex,
+        irr: metrics.irr,
+        payback: metrics.submittedPaybackMonths,
+        capex: metrics.nrc,
         subsidy: validated.subsidy,
         approvedBudget: validated.approvedBudget,
-        nrv: validated.nrv,
-        tcv: validated.tcv,
+        nrv: metrics.nrv,
+        tcv: metrics.tcv,
         exchangeRateKesUsd: validated.exchangeRateKesUsd,
         decision,
         state: route.state,
